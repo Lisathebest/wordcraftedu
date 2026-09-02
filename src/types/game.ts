@@ -1,5 +1,5 @@
 export type Level = "L1" | "L2" | "L3";
-export type MatchMode = "solo" | "local";
+export type MatchMode = "solo" | "local" | "student";
 export type MatchStatus = "setup" | "playing" | "finished";
 export type InputMethod = "text" | "voice";
 export type AbilityId = "preview" | "shield" | "exchange" | "social";
@@ -12,6 +12,8 @@ export interface VocabularyWord {
   chinese: string;
   collocations: [string, string, string];
   image: string;
+  /** Prompt/style version used for the generated image; absent means it needs a redraw after a style change. */
+  illustrationVersion?: number;
   pronunciation: string;
   fallbackStructure: string;
 }

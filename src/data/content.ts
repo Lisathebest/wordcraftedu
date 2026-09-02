@@ -32,8 +32,12 @@ export const curatedVocabulary: VocabularyWord[] = [
   word(54, "L3", "kiosk", "小亭；服务台", ["information kiosk", "news kiosk", "interactive kiosk"], "/ˈkiːɒsk/", "Kiosk"),
 ];
 
-/** All supplied words are playable; teachers narrow this catalog during lesson setup. */
-export const vocabulary: VocabularyWord[] = fullVocabulary;
+/**
+ * Keep the bundled word bank immutable at runtime. Teacher-created words live
+ * in a separate playable registry so they never silently become part of the
+ * starter/testing catalog.
+ */
+export const vocabulary: VocabularyWord[] = [...fullVocabulary];
 
 export const vocabularyById = Object.fromEntries(vocabulary.map((item) => [item.id, item]));
 

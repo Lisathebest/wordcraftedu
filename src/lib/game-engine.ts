@@ -1,4 +1,4 @@
-import { abilityFloorForWord, abilityForWord, buildingImageForWord, recipes, vocabulary, vocabularyById } from "@/data/content";
+import { abilityFloorForWord, abilityForWord, buildingImageForWord, fullVocabulary, recipes, vocabularyById } from "@/data/content";
 import type { AbilityId, EvaluationResult, MatchMode, MatchState, MatchSummary, PlayerState, Recipe } from "@/types/game";
 
 const MATCH_SECONDS = 8 * 60;
@@ -16,9 +16,9 @@ function makePlayer(id: string, name: string): PlayerState {
   return { id, name, hand: [], familiarity: {}, lastUsed: {}, structures: [], discoveredRecipes: [], score: 0, usedAbilities: [], shieldActive: false };
 }
 
-export function createMatch(mode: MatchMode, names: string[], seed = 7, wordPool = vocabulary.map((word) => word.id), durationMinutes = 8): MatchState {
-  const players = (mode === "solo" ? [names[0] || "Builder"] : names).map((name, index) => makePlayer(`p${index + 1}`, name || `Player ${index + 1}`));
-  const usablePool = wordPool.length >= HAND_SIZE * players.length ? wordPool : vocabulary.map((word) => word.id);
+export function createMatch(mode: MatchMode, names: string[], seed = 7, wordPool = fullVocabulary.map((word) => word.id), durationMinutes = 8): MatchState {
+  const players = (mode === "solo" || mode === "student" ? [names[0] || "Builder"] : names).map((name, index) => makePlayer(`p${index + 1}`, name || `Player ${index + 1}`));
+  const usablePool = wordPool.length >= HAND_SIZE * players.length ? wordPool : fullVocabulary.map((word) => word.id);
   const shuffled = seededShuffle(usablePool, seed);
   const wordOwnership: Record<string, string> = {};
   for (let round = 0; round < HAND_SIZE; round++) {

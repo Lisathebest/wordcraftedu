@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingImageForWord, fullVocabulary, recipes, unlockedRecipeTier } from "@/data/content";
+import { buildingImageForWord, fullVocabulary, recipes, registerVocabularyWords, unlockedRecipeTier } from "@/data/content";
 import { evaluateRules, evaluationCacheKey } from "@/lib/evaluation";
 import { applyEvaluation, coreWord, createMatch, recipeFor, tick, useAbility } from "@/lib/game-engine";
 import type { EvaluationResult } from "@/types/game";
@@ -11,6 +11,7 @@ describe("evaluation rules", () => {
   it("accepts inflected target words in a complete sentence", () => {
     expect(evaluateRules({ sentence: "We attended two lectures in the auditorium.", inputMethod: "text", targetWords: ["lecture", "auditorium"], gradeBand: "7-9" })).toBeNull();
     expect(evaluateRules({ sentence: "The scholarship reduces my pressure when buying a new textbook.", inputMethod: "text", targetWords: ["textbook", "scholarship"], gradeBand: "7-9" })).toBeNull();
+    expect(evaluateRules({ sentence: "I put my beverage on top of the drawer next to the electronic outlet.", inputMethod: "text", targetWords: ["beverage", "drawer", "outlet"], gradeBand: "7-9" })).toBeNull();
   });
   it("rejects missing words and fragments instantly", () => {
     expect(evaluateRules({ sentence: "A pastry.", inputMethod: "text", targetWords: ["pastry", "beverage"], gradeBand: "5-6" })?.valid).toBe(false);
@@ -22,9 +23,21 @@ describe("evaluation rules", () => {
 });
 
 describe("crafting engine", () => {
+  it("gives a Student Table one learner seat", () => {
+    const state = createMatch("student", ["Maya", "Ignored"], 17, ["compass", "assignment", "lecture", "auditorium"]);
+    expect(state.mode).toBe("student");
+    expect(state.players).toHaveLength(1);
+    expect(state.players[0].name).toBe("Maya");
+  });
+
   it("keeps the normalized source catalog available alongside MVP content", () => {
     expect(fullVocabulary).toHaveLength(54);
     expect(fullVocabulary.every((item) => item.level && item.chinese && item.collocations.length === 3 && item.image && item.fallbackStructure)).toBe(true);
+  });
+  it("keeps teacher imports out of the default starter pool", () => {
+    registerVocabularyWords([{ id: "custom-teacher-only", number: 9000, word: "teacher-only", level: "L1", chinese: "教师词", collocations: ["teacher-only", "use teacher-only", "learn teacher-only"], image: "/illustration-studio/pending-word.svg", pronunciation: "/teacher-only/", fallbackStructure: "Teacher-only" }]);
+    const state = createMatch("solo", ["A"], 3);
+    expect([...state.players[0].hand, ...state.drawPile]).not.toContain("custom-teacher-only");
   });
   it("treats recipe ingredients as unordered", () => {
     expect(recipeFor(["auditorium", "lecture"])?.id).toBe("lecture-auditorium");
