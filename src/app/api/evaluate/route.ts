@@ -5,9 +5,15 @@ import type { EvaluationRequest, EvaluationResult } from "@/types/game";
 export const runtime = "nodejs";
 
 type ChatPayload = {
-  choices?: Array<{ message?: { content?: unknown; reasoning_content?: unknown }; text?: unknown }>;
+  choices?: Array<{
+    finish_reason?: unknown;
+    message?: { content?: unknown; reasoning_content?: unknown };
+    text?: unknown;
+  }>;
   output_text?: unknown;
 };
+
+const COMPLETION_TOKEN_BUDGETS = [800, 1600] as const;
 
 function asRequest(input: unknown): EvaluationRequest {
   const value = input as Partial<EvaluationRequest>;
@@ -38,6 +44,10 @@ function extractAnswer(payload: ChatPayload): string {
     || contentToText(choice?.message?.reasoning_content)
     || contentToText(choice?.text)
     || contentToText(payload.output_text);
+}
+
+function wasTruncated(payload: ChatPayload) {
+  return payload.choices?.[0]?.finish_reason === "length";
 }
 
 function parseJsonAnswer(raw: string): Partial<EvaluationResult> {
@@ -80,30 +90,38 @@ export async function POST(request: Request) {
   const started = Date.now();
   let receivedAnswer = false;
   try {
-    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(30000),
-      body: JSON.stringify({
-        model,
-        temperature: 0.1,
-        max_tokens: 300,
-        // Agnes 2.0 Flash rejects the top-level response_format parameter.
-        // The strict system instruction plus tolerant parsing below keeps the
-        // same JSON contract without spending a request on a 400 response.
-        ...(!useAgnes ? { response_format: { type: "json_object" } } : {}),
-        messages: [
-          { role: "system", content: "You evaluate an English vocabulary game sentence for grades 5-9. Return only JSON with valid (boolean), confidence (0 to 1), reason (short supportive explanation), correctedSentence (string), and relationshipSummary (short explanation of how the target words relate). Accept understandable natural English; do not require perfect grammar. The sentence must use every target word in a meaningful context." },
-          { role: "user", content: JSON.stringify({ ...input, task: "Evaluate semantic appropriateness and comprehensibility." }) },
-        ],
-      }),
-    });
-    if (!response.ok) throw new Error(`AI evaluator returned ${response.status}`);
-    const payload = await response.json() as ChatPayload;
-    const raw = extractAnswer(payload);
-    if (!raw) throw new Error("AI evaluator returned no content");
-    receivedAnswer = true;
-    const parsed = parseJsonAnswer(raw);
+    let parsed: Partial<EvaluationResult> | null = null;
+    for (const [attempt, maxTokens] of COMPLETION_TOKEN_BUDGETS.entries()) {
+      const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(30000),
+        body: JSON.stringify({
+          model,
+          temperature: 0.1,
+          max_tokens: maxTokens,
+          // Agnes 2.0 Flash rejects the top-level response_format parameter.
+          // The strict system instruction plus tolerant parsing below keeps the
+          // same JSON contract without spending a request on a 400 response.
+          ...(!useAgnes ? { response_format: { type: "json_object" } } : {}),
+          messages: [
+            { role: "system", content: "You evaluate an English vocabulary game sentence for grades 5-9. Return only compact JSON with valid (boolean), confidence (0 to 1), reason (one short supportive sentence), correctedSentence (string), and relationshipSummary (one short sentence explaining how the target words relate). Write directly to a primary-school learner using friendly, everyday English. Keep reason and relationshipSummary under 15 words each. Say clearly what works or what the learner should change. Never use technical language such as semantic, semantically, appropriate, comprehensible, coherence, grammatical, grammar, syntax, or contextually. Do not include markdown or reasoning. Accept understandable natural English; do not require perfect grammar. The sentence must use every target word in a way that makes sense." },
+            { role: "user", content: JSON.stringify({ ...input, task: "Check whether the sentence is clear and every target word makes sense in it." }) },
+          ],
+        }),
+      });
+      if (!response.ok) throw new Error(`AI evaluator returned ${response.status}`);
+      const payload = await response.json() as ChatPayload;
+      const raw = extractAnswer(payload);
+      if (raw) receivedAnswer = true;
+
+      if (wasTruncated(payload) && attempt < COMPLETION_TOKEN_BUDGETS.length - 1) continue;
+      if (!raw) throw new Error("AI evaluator returned no content");
+      if (wasTruncated(payload)) throw new Error("AI evaluator response was truncated");
+      parsed = parseJsonAnswer(raw);
+      break;
+    }
+    if (!parsed) throw new Error("AI evaluator returned no result");
     const result: EvaluationResult = {
       valid: parsed.valid === true,
       confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5)),
@@ -115,7 +133,13 @@ export async function POST(request: Request) {
     // Low-confidence results remain playable but are clearly marked as provisional.
     result.provisional = result.confidence < 0.7;
     return NextResponse.json(result, { headers: { "Server-Timing": `evaluation;dur=${Date.now() - started}` } });
-  } catch {
+  } catch (error) {
+    console.error("Semantic evaluator failed", {
+      provider: useAgnes ? "agnes" : useDeepSeek ? "deepseek" : "openai",
+      model,
+      receivedAnswer,
+      error: error instanceof Error ? error.message : "Unknown evaluator error",
+    });
     const reason = receivedAnswer
       ? "The semantic evaluator replied, but its answer format could not be read. Your sentence passed the instant checks and is counted provisionally."
       : "The semantic evaluator was unavailable before returning an answer. Your sentence passed the instant checks and is counted provisionally.";
