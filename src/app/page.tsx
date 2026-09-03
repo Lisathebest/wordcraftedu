@@ -223,6 +223,12 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, [phase, match?.status]);
 
+  // A new round replaces the long setup page with the game view. Reset the
+  // document scroll after that transition so learners land at the word shelf.
+  useEffect(() => {
+    if (phase === "playing") window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [phase]);
+
   useEffect(() => { if (match) saveMatch(match); }, [match]);
 
   useEffect(() => {
