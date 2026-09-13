@@ -67,6 +67,8 @@ export interface SubmissionRecord {
   source: EvaluationResult["source"];
   feedback: string;
   createdAt: number;
+  /** Set only when the learner chooses to save this attempt for review. */
+  grammarMistake?: boolean;
 }
 
 export interface MatchMetrics {
@@ -118,4 +120,5 @@ export interface MatchSummary {
   highestFamiliarityWord?: string;
   successfulUses: number;
   reviewItems: string[];
+  grammarMistakes: SubmissionRecord[];
 }

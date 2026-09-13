@@ -45,12 +45,12 @@ export function notePronunciation(state: MatchState): MatchState {
   return { ...state, pronunciationPenalty: true, metrics: { ...state.metrics, pronunciationUses: state.metrics.pronunciationUses + 1 } };
 }
 
-export function applyEvaluation(state: MatchState, sentence: string, targets: string[], evaluation: EvaluationResult, durationMs = 0): MatchState {
+export function applyEvaluation(state: MatchState, sentence: string, targets: string[], evaluation: EvaluationResult, durationMs = 0, submissionId?: string): MatchState {
   const next = structuredClone(state);
   const player = next.players[next.activeSeat];
   next.metrics.attempts++;
   next.metrics.evaluationTotalMs += durationMs;
-  next.submissions.unshift({ id: `s-${Date.now()}-${next.metrics.attempts}`, playerId: player.id, sentence, targetWords: targets, valid: evaluation.valid, source: evaluation.source, feedback: evaluation.reason, createdAt: Date.now() });
+  next.submissions.unshift({ id: submissionId || `s-${Date.now()}-${next.metrics.attempts}`, playerId: player.id, sentence, targetWords: targets, valid: evaluation.valid, source: evaluation.source, feedback: evaluation.reason, createdAt: Date.now(), grammarMistake: false });
   if (!evaluation.valid) {
     if (player.shieldActive) player.shieldActive = false;
     else player.score = Math.max(0, player.score - 1);
@@ -87,6 +87,16 @@ export function applyEvaluation(state: MatchState, sentence: string, targets: st
   next.pronunciationPenalty = false;
   if (next.mode === "local") next.activeSeat = (next.activeSeat + 1) % next.players.length;
   rotateHand(next, player, targets);
+  return next;
+}
+
+/** Save the learner's current invalid attempt for the end-of-round review. */
+export function recordGrammarMistake(state: MatchState, submissionId: string): MatchState {
+  const playerId = state.players[state.activeSeat]?.id;
+  const index = state.submissions.findIndex((submission) => submission.id === submissionId && submission.playerId === playerId && !submission.valid);
+  if (index < 0 || state.submissions[index].grammarMistake) return state;
+  const next = structuredClone(state);
+  next.submissions[index].grammarMistake = true;
   return next;
 }
 
@@ -165,7 +175,8 @@ export function summarize(state: MatchState): MatchSummary[] {
     playerId: player.id, score: player.score, craftedStructures: player.structures,
     highestFamiliarityWord: coreWord(player),
     successfulUses: state.submissions.filter((submission) => submission.playerId === player.id && submission.valid).length,
-    reviewItems: state.submissions.filter((submission) => submission.playerId === player.id && !submission.valid).flatMap((submission) => submission.targetWords).filter((word, index, all) => all.indexOf(word) === index),
+    reviewItems: state.submissions.filter((submission) => submission.playerId === player.id && submission.grammarMistake).flatMap((submission) => submission.targetWords).filter((word, index, all) => all.indexOf(word) === index),
+    grammarMistakes: state.submissions.filter((submission) => submission.playerId === player.id && submission.grammarMistake),
   }));
 }
 

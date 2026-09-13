@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildingImageForWord, fullVocabulary, recipes, registerVocabularyWords, unlockedRecipeTier } from "@/data/content";
 import { evaluateRules, evaluationCacheKey } from "@/lib/evaluation";
-import { applyEvaluation, coreWord, createMatch, recipeFor, tick, useAbility } from "@/lib/game-engine";
+import { applyEvaluation, coreWord, createMatch, recipeFor, recordGrammarMistake, summarize, tick, useAbility } from "@/lib/game-engine";
 import type { EvaluationResult } from "@/types/game";
 
 const valid: EvaluationResult = { valid: true, confidence: 1, reason: "Good.", correctedSentence: "", relationshipSummary: "Connected.", source: "rules-fallback", provisional: true };
@@ -29,6 +29,11 @@ describe("crafting engine", () => {
     expect(state.mode).toBe("student");
     expect(state.players).toHaveLength(1);
     expect(state.players[0].name).toBe("Maya");
+  });
+  it("changes the opening hand when a new round gets a new seed", () => {
+    const firstRound = createMatch("solo", ["A"], 17);
+    const secondRound = createMatch("solo", ["A"], 18);
+    expect(firstRound.players[0].hand).not.toEqual(secondRound.players[0].hand);
   });
 
   it("keeps the normalized source catalog available alongside MVP content", () => {
@@ -71,6 +76,18 @@ describe("crafting engine", () => {
     state = applyEvaluation(state, "I completed my assignment in the textbook study space before the lecture in the auditorium.", player.hand, valid);
     expect(state.players[0].score).toBe(7); // recipe 4 + three extra ingredients
     expect(state.players[0].hand.some((id) => ["textbook", "assignment", "lecture", "auditorium"].includes(id))).toBe(false);
+  });
+  it("records only the invalid attempt the learner chose to review", () => {
+    let state = createMatch("solo", ["A"], 3);
+    state = applyEvaluation(state, "The sentence needs work.", ["assignment"], invalid);
+    const submissionId = state.submissions[0].id;
+    expect(state.submissions[0].grammarMistake).toBe(false);
+    expect(summarize(state)[0].grammarMistakes).toHaveLength(0);
+
+    state = recordGrammarMistake(state, submissionId);
+    expect(state.submissions[0].grammarMistake).toBe(true);
+    expect(summarize(state)[0].grammarMistakes).toHaveLength(1);
+    expect(recordGrammarMistake(state, submissionId)).toBe(state);
   });
   it("upgrades a repeated structure and resolves core-word ties by recency", () => {
     let state = createMatch("solo", ["A"], 2);

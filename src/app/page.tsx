@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { abilityCopy, buildingImageForWord, fullVocabulary, recipes, registerVocabularyWords, vocabularyById } from "@/data/content";
 import { makeClassFolder, parseClassFolderExport, removeClassFolder, serializeClassFolder, serializeClassFolderCsv, updateClassFolder, type ClassFolder } from "@/lib/classroom-folders";
-import { evaluateRules, evaluationCacheKey, normalizeSentence } from "@/lib/evaluation";
-import { applyEvaluation, createMatch, coreWord, notePronunciation, summarize, tick, useAbility } from "@/lib/game-engine";
+import { evaluateRules, evaluationCacheKey } from "@/lib/evaluation";
+import { applyEvaluation, createMatch, coreWord, notePronunciation, recordGrammarMistake, summarize, tick, useAbility } from "@/lib/game-engine";
 import { createClassroomLink, hydrateSharedWords, readClassroomLink, type ClassroomLearnerLevel, type ClassroomWordFocus } from "@/lib/classroom-link";
 import { ILLUSTRATION_STYLE_VERSION, isGeneratedIllustration, PENDING_WORD_IMAGE } from "@/lib/illustration";
 import { clearMatch, loadClassFolders, loadCustomWords, loadMatch, loadSettings, saveClassFolders, saveCustomWords, saveHistory, saveMatch, saveSettings } from "@/lib/storage";
@@ -78,6 +78,14 @@ function downloadFile(filename: string, contents: string, mimeType: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+function randomMatchSeed() {
+  return Math.floor(Math.random() * 233280);
+}
+
+function newSubmissionId() {
+  return `s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export default function Home() {
   const [phase, setPhase] = useState<Phase>("setup");
   const [mode, setMode] = useState<MatchMode>("solo");
@@ -115,6 +123,7 @@ export default function Home() {
   const [sentence, setSentence] = useState("");
   const [inputMethod, setInputMethod] = useState<InputMethod>("text");
   const [feedback, setFeedback] = useState<EvaluationResult | null>(null);
+  const [feedbackSubmissionId, setFeedbackSubmissionId] = useState<string | null>(null);
   const [pendingReview, setPendingReview] = useState<{ result: EvaluationResult; sentence: string; targets: string[] } | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -436,15 +445,17 @@ export default function Home() {
       else setFolderNotice(message);
       return;
     }
-    const next = createMatch(mode, playerNames.length ? playerNames : ["Builder"], 17, pool, durationMinutes);
-    stopVoice(); setVoiceStatus(null); setMatch(next); setPhase("playing"); setSelected([]); setSentence(""); setFeedback(null); setPendingReview(null); setSelectedBuildingId(null); setSelectedFloor(1); setAbilityTargetId("");
+    const next = createMatch(mode, playerNames.length ? playerNames : ["Builder"], randomMatchSeed(), pool, durationMinutes);
+    stopVoice(); setVoiceStatus(null); setMatch(next); setPhase("playing"); setSelected([]); setSentence(""); setFeedback(null); setFeedbackSubmissionId(null); setPendingReview(null); setSelectedBuildingId(null); setSelectedFloor(1); setAbilityTargetId("");
   };
 
   const finishMatch = () => { if (match) { stopVoice(); const finished = { ...match, status: "finished" as const, remainingSeconds: 0 }; saveHistory(finished); setMatch(finished); setPhase("finished"); } };
 
   const commitResult = (result: EvaluationResult, sentenceToCommit: string, targetsToCommit: string[], durationMs = 0) => {
+    const submissionId = newSubmissionId();
     setFeedback(result);
-    setMatch((current) => current ? applyEvaluation(current, sentenceToCommit, targetsToCommit, result, durationMs) : current);
+    setFeedbackSubmissionId(submissionId);
+    setMatch((current) => current ? applyEvaluation(current, sentenceToCommit, targetsToCommit, result, durationMs, submissionId) : current);
     setPendingReview(null);
     if (result.valid) {
       setSelected([]);
@@ -458,13 +469,19 @@ export default function Home() {
     if (isListening) stopVoice();
     const request = { sentence, inputMethod, targetWords: selected.map((id) => vocabularyById[id]?.word || id), gradeBand: "7-9" as const };
     const instant = evaluateRules(request);
-    if (instant) { setFeedback(instant); setMatch((current) => current ? applyEvaluation(current, sentence, selected, instant) : current); return; }
+    if (instant) {
+      const submissionId = newSubmissionId();
+      setFeedback(instant);
+      setFeedbackSubmissionId(submissionId);
+      setMatch((current) => current ? applyEvaluation(current, sentence, selected, instant, 0, submissionId) : current);
+      return;
+    }
     const key = `${CACHE_PREFIX}${evaluationCacheKey(request)}`;
     const cached = window.localStorage.getItem(key);
     if (cached) {
       const result = JSON.parse(cached) as EvaluationResult;
       if (result.source === "ai") {
-        if (result.confidence < 0.7) { setFeedback(result); setPendingReview({ result, sentence, targets: selected }); }
+        if (result.confidence < 0.7) { setFeedback(result); setFeedbackSubmissionId(null); setPendingReview({ result, sentence, targets: selected }); }
         else commitResult(result, sentence, selected);
         return;
       }
@@ -478,16 +495,17 @@ export default function Home() {
       const response = await fetch("/api/evaluate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) });
       const result = await response.json() as EvaluationResult;
       if (result.source === "ai") window.localStorage.setItem(key, JSON.stringify(result));
-      if (result.provisional) { setFeedback(result); setPendingReview({ result, sentence, targets: selected }); } else commitResult(result, sentence, selected, performance.now() - started);
+      if (result.provisional) { setFeedback(result); setFeedbackSubmissionId(null); setPendingReview({ result, sentence, targets: selected }); } else commitResult(result, sentence, selected, performance.now() - started);
     } catch {
       const result: EvaluationResult = { valid: true, confidence: .5, reason: "Saved as a provisional practice sentence while the evaluator reconnects.", correctedSentence: sentence, relationshipSummary: "Your target words appeared together.", source: "rules-fallback", provisional: true };
       setFeedback(result);
+      setFeedbackSubmissionId(null);
       setPendingReview({ result, sentence, targets: selected });
     } finally { setIsEvaluating(false); }
   };
 
   const countPendingPractice = () => { if (!pendingReview) return; commitResult({ ...pendingReview.result, valid: true, reason: `${pendingReview.result.reason} Counted as practice while the evaluator is unsure.` }, pendingReview.sentence, pendingReview.targets); };
-  const retryPending = () => { setPendingReview(null); setFeedback(null); };
+  const retryPending = () => { setPendingReview(null); setFeedback(null); setFeedbackSubmissionId(null); };
 
   const selectedStructure = activePlayer?.structures.find((structure) => structure.id === selectedBuildingId) || activePlayer?.structures[0];
   const abilityNeedsTarget = selectedStructure?.ability === "social" || (selectedStructure?.ability === "exchange" && match?.mode === "local" && (match.players.length || 0) > 1);
@@ -504,13 +522,14 @@ export default function Home() {
 
   const startVoice = () => {
     const SpeechRecognition = (window as Window & { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike }).SpeechRecognition || (window as Window & { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition;
-    if (!SpeechRecognition) { setFeedback({ valid: false, confidence: 1, reason: "This browser does not provide speech recognition. Try Chrome or Safari, or type the sentence instead.", correctedSentence: "", relationshipSummary: "", source: "rules", provisional: false }); return; }
+    if (!SpeechRecognition) { setFeedback({ valid: false, confidence: 1, reason: "This browser does not provide speech recognition. Try Chrome or Safari, or type the sentence instead.", correctedSentence: "", relationshipSummary: "", source: "rules", provisional: false }); setFeedbackSubmissionId(null); return; }
 
     if (voiceActive.current) return;
     voiceActive.current = true;
     voiceFinalText.current = "";
     voiceInterimText.current = "";
     setFeedback(null);
+    setFeedbackSubmissionId(null);
     setVoiceStatus("Listening… your words will appear in the sentence box.");
     setInputMethod("voice");
 
@@ -550,21 +569,21 @@ export default function Home() {
           voiceActive.current = false;
           setIsListening(false);
           setVoiceStatus(null);
-          setFeedback({ valid: false, confidence: 1, reason: "Microphone access is blocked. Allow microphone access for localhost:8000, then try again.", correctedSentence: "", relationshipSummary: "", source: "rules", provisional: false });
+          setFeedback({ valid: false, confidence: 1, reason: "Microphone access is blocked. Allow microphone access for localhost:8000, then try again.", correctedSentence: "", relationshipSummary: "", source: "rules", provisional: false }); setFeedbackSubmissionId(null);
           return;
         }
         if (error === "audio-capture") {
           voiceActive.current = false;
           setIsListening(false);
           setVoiceStatus(null);
-          setFeedback({ valid: false, confidence: 1, reason: "No microphone was found. Check your microphone and try again.", correctedSentence: "", relationshipSummary: "", source: "rules", provisional: false });
+          setFeedback({ valid: false, confidence: 1, reason: "No microphone was found. Check your microphone and try again.", correctedSentence: "", relationshipSummary: "", source: "rules", provisional: false }); setFeedbackSubmissionId(null);
           return;
         }
         if (error === "network") {
           voiceActive.current = false;
           setIsListening(false);
           setVoiceStatus(null);
-          setFeedback({ valid: false, confidence: 1, reason: "The browser's speech service is unavailable. Try Chrome or Safari on localhost:8000, or use typed input.", correctedSentence: voiceFinalText.current, relationshipSummary: "", source: "rules", provisional: false });
+          setFeedback({ valid: false, confidence: 1, reason: "The browser's speech service is unavailable. Try Chrome or Safari on localhost:8000, or use typed input.", correctedSentence: voiceFinalText.current, relationshipSummary: "", source: "rules", provisional: false }); setFeedbackSubmissionId(null);
           return;
         }
         // no-speech and aborted are normal when a browser closes an idle recognition
@@ -595,7 +614,7 @@ export default function Home() {
         voiceActive.current = false;
         setIsListening(false);
         setVoiceStatus(null);
-        setFeedback({ valid: false, confidence: 1, reason: "Voice input could not start. Allow microphone access for localhost:8000 and try again.", correctedSentence: "", relationshipSummary: "", source: "rules", provisional: false });
+        setFeedback({ valid: false, confidence: 1, reason: "Voice input could not start. Allow microphone access for localhost:8000 and try again.", correctedSentence: "", relationshipSummary: "", source: "rules", provisional: false }); setFeedbackSubmissionId(null);
       }
     };
     startAttempt();
@@ -605,9 +624,12 @@ export default function Home() {
   if (phase === "finished" && match) return <Summary match={match} restart={() => { clearMatch(); setPhase("setup"); setMatch(null); }} />;
   if (!match || !activePlayer) return null;
 
+  const currentAttempt = feedbackSubmissionId ? match.submissions.find((submission) => submission.id === feedbackSubmissionId) : null;
+
   const loadFormula = (ingredients: [string, string]) => {
     setSelected([...ingredients]);
     setFeedback(null);
+    setFeedbackSubmissionId(null);
     setPendingReview(null);
     const input = sentenceInputRef.current;
     if (!input) return;
@@ -628,10 +650,10 @@ export default function Home() {
 
   return <main className="app-shell"><Header /><div className="content">
     <div className="game-top"><div className="game-title"><div className="eyebrow">{match.mode === "student" ? "Student table" : match.mode === "solo" ? "Individual practice" : "Team rotation"}</div><h2>{activePlayer.name}'s turn</h2></div><div className={`timer ${match.remainingSeconds < 90 ? "warning" : ""}`}><span className="timer-dot" />{formatTime(match.remainingSeconds)}</div><button className="btn btn-ghost" onClick={finishMatch}>End round</button></div>
-    {match.mode === "local" && <div className="player-tabs">{match.players.map((player, index) => <button key={player.id} className={`player-tab ${index === match.activeSeat ? "active" : ""}`} onClick={() => { stopVoice(); setVoiceStatus(null); setSelected([]); setSentence(""); setFeedback(null); setPendingReview(null); setSelectedBuildingId(null); setSelectedFloor(1); setAbilityTargetId(""); setMatch({ ...match, activeSeat: index }); }}>{player.name} · {player.score} pts</button>)}</div>}
+    {match.mode === "local" && <div className="player-tabs">{match.players.map((player, index) => <button key={player.id} className={`player-tab ${index === match.activeSeat ? "active" : ""}`} onClick={() => { stopVoice(); setVoiceStatus(null); setSelected([]); setSentence(""); setFeedback(null); setFeedbackSubmissionId(null); setPendingReview(null); setSelectedBuildingId(null); setSelectedFloor(1); setAbilityTargetId(""); setMatch({ ...match, activeSeat: index }); }}>{player.name} · {player.score} pts</button>)}</div>}
     <div className="game-grid"><section className="panel workspace"><div className="workspace-head"><div><div className="eyebrow">Your word shelf</div><h3>Choose ingredients</h3><div className="subtle">Select one word for a focused build, or several words to make a richer sentence. Known recipes can hide inside a larger combination.</div></div><span className="pill">{selected.length}/{selectionLimit} selected</span></div>
       <div className="hand">{activePlayer.hand.map((id) => { const item = vocabularyById[id]; const familiarity = activePlayer.familiarity[id] || 0; const toggle = () => setSelected((current) => current.includes(id) ? current.filter((word) => word !== id) : current.length < selectionLimit ? [...current, id] : current); return <div key={id} className={`word-card ${selected.includes(id) ? "selected" : ""}`} role="button" tabIndex={0} onClick={toggle} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); } }}><button className="speak" title={`Hear ${item.word}`} onClick={(event) => { event.stopPropagation(); speak(item.word); }}>🔊</button><img src={item.image} alt=""/><b>{item.word}</b><small>{item.chinese} · {item.level}</small><span className="familiarity" aria-label={`${familiarity} familiarity`}>{[0,1,2,3,4].map((dot) => <i key={dot} className={dot < Math.min(5, familiarity) ? "on" : ""} />)}</span></div>; })}</div>
-      <div className="sentence-area"><div className="eyebrow">Make it meaningful</div><p className="subtle">Use <strong>{selectedLabels || "your selected words"}</strong> in a complete English sentence.</p><textarea ref={sentenceInputRef} className="sentence-box" value={sentence} onChange={(event) => { setSentence(event.target.value); setInputMethod("text"); setVoiceStatus(null); }} placeholder="Example: I bought a pastry, a cold beverage, and a textbook at the cafeteria." />{inputMethod === "voice" && <p className="voice-hint">Voice → text writes the transcript into this box. You can edit it before crafting.</p>}<div className="action-row"><button className="btn btn-primary" disabled={!selected.length || !sentence.trim() || isEvaluating} onClick={evaluate}>{isEvaluating ? "Checking…" : selected.length > 1 ? `Craft with ${selected.length} words` : "Build with this word"}</button><button className={`btn ${isListening ? "btn-coral" : "btn-mint"}`} aria-pressed={isListening} onClick={isListening ? stopVoice : startVoice}>{isListening ? "Listening… tap to stop" : "🎙 Voice → text"}</button><span className="microcopy">{voiceStatus || (inputMethod === "voice" ? "Voice transcript ready" : "Text input")} · select up to {selectionLimit} words</span></div>{feedback && <div className={`feedback ${feedback.valid ? "" : "bad"}`}><strong>{feedback.valid ? "✨ That works" : "Not quite yet"}</strong><p>{feedback.reason}</p>{!feedback.valid && feedback.correctedSentence && normalizeSentence(feedback.correctedSentence) !== normalizeSentence(sentence) && <div className="sentence-correction"><div><span>Try this</span><b>{feedback.correctedSentence}</b></div><button className="btn btn-ghost" onClick={() => { setSentence(feedback.correctedSentence); setFeedback(null); window.setTimeout(() => sentenceInputRef.current?.focus(), 0); }}>Use correction</button></div>}{feedback.relationshipSummary && <p className="subtle">{feedback.relationshipSummary}</p>}{feedback.provisional && <div className="provisional">Could not complete the AI check · count it as practice or edit and retry.</div>}{pendingReview && <div className="action-row"><button className="btn btn-mint" onClick={countPendingPractice}>Count as practice</button><button className="btn btn-ghost" onClick={retryPending}>Edit and retry</button></div>}</div>}</div>
+      <div className="sentence-area"><div className="eyebrow">Make it meaningful</div><p className="subtle">Use <strong>{selectedLabels || "your selected words"}</strong> in a complete English sentence.</p><textarea ref={sentenceInputRef} className="sentence-box" value={sentence} onChange={(event) => { setSentence(event.target.value); setInputMethod("text"); setVoiceStatus(null); }} placeholder="Example: I bought a pastry, a cold beverage, and a textbook at the cafeteria." />{inputMethod === "voice" && <p className="voice-hint">Voice → text writes the transcript into this box. You can edit it before crafting.</p>}<div className="action-row"><button className="btn btn-primary" disabled={!selected.length || !sentence.trim() || isEvaluating} onClick={evaluate}>{isEvaluating ? "Checking…" : selected.length > 1 ? `Craft with ${selected.length} words` : "Build with this word"}</button><button className={`btn ${isListening ? "btn-coral" : "btn-mint"}`} aria-pressed={isListening} onClick={isListening ? stopVoice : startVoice}>{isListening ? "Listening… tap to stop" : "🎙 Voice → text"}</button><span className="microcopy">{voiceStatus || (inputMethod === "voice" ? "Voice transcript ready" : "Text input")} · select up to {selectionLimit} words</span></div>{feedback && <div className={`feedback ${feedback.valid ? "" : "bad"}`}><strong>{feedback.valid ? "✨ That works" : "Not quite yet"}</strong><p>{feedback.reason}</p>{!feedback.valid && !pendingReview && currentAttempt && <div className="grammar-mistake-row"><button className="btn btn-ghost" disabled={Boolean(currentAttempt.grammarMistake)} onClick={() => setMatch((current) => current ? recordGrammarMistake(current, currentAttempt.id) : current)}>{currentAttempt.grammarMistake ? "✓ Grammar mistake recorded" : "＋ Record grammar mistake"}</button><span>Type it again above when you are ready.</span></div>}{feedback.relationshipSummary && <p className="subtle">{feedback.relationshipSummary}</p>}{feedback.provisional && <div className="provisional">Could not complete the AI check · count it as practice or edit and retry.</div>}{pendingReview && <div className="action-row"><button className="btn btn-mint" onClick={countPendingPractice}>Count as practice</button><button className="btn btn-ghost" onClick={retryPending}>Edit and retry</button></div>}</div>}</div>
     </section><aside className="side-stack"><section className="panel side-card"><h3>Your world</h3><div className="score-row"><span>World score</span><span className="score">{activePlayer.score}</span></div><div className="score-row"><span>Recipes discovered</span><span className="score">{activePlayer.discoveredRecipes.length}/{recipes.length}</span></div><div className="score-row"><span>Core word</span><span className="score">{coreWord(activePlayer) ? vocabularyById[coreWord(activePlayer)]?.word : "—"}</span></div></section><section className="panel side-card"><h3>How to play</h3><p className="subtle">A single word grows familiarity. A meaningful pair unlocks a new place. Borrowing another player’s word helps both worlds learn. Open the campus map below to choose a floor and spend a building ability.</p>{match.lastInteraction && <div className="feedback interaction-feed"><strong>Campus message</strong><p>{match.lastInteraction}</p></div>}{match.previewWord && <div className="feedback"><strong>Next draw</strong><p>{vocabularyById[match.previewWord]?.word}</p></div>}</section></aside></div>
     <div className="campus-tools"><BuildingPanel player={activePlayer} match={match} selectedBuildingId={selectedBuildingId} selectedFloor={selectedFloor} targetPlayerId={abilityTargetId} onSelectBuilding={(id) => { setSelectedBuildingId(id); setSelectedFloor(1); setAbilityTargetId(""); }} onSelectFloor={setSelectedFloor} onSelectTarget={setAbilityTargetId} onUseAbility={useSelectedAbility} /><RecipeBook player={activePlayer} onTryFormula={loadFormula} onVisitBuilding={visitBuilding} /></div>
   </div><div className="footer-note">Wordcraft Classroom · meaningful vocabulary practice at your learners’ level</div></main>;
@@ -764,7 +786,7 @@ function Setup({ mode, setMode, names, setNames, learnerLevel, setLearnerLevel, 
       {!studentMode && <div className="setup-section lesson-folder-section"><label className="field-label" htmlFor="lesson-folder">4 · Class folder for this round</label><select id="lesson-folder" className="text-input" value={activeFolder?.id || "initial"} onChange={(event) => event.target.value === "initial" ? onNewFolder() : onSelectFolder(event.target.value)}><option value="initial">Initial Wordcraft word bank</option>{classFolders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name} · {folder.words.length} words</option>)}</select><small className="subtle">Pick a saved class set, or use the initial testing bank. Manage folders below.</small></div>}
       <div className="setup-section"><label className="field-label">{studentMode ? "2 · Your name" : "5 · " + (mode === "solo" ? "Learner or class name" : "Team names")}</label>{studentMode ? <input className="text-input" value={names[0]} onChange={(event) => setNames([event.target.value, ...names.slice(1)])} placeholder="Your name" /> : mode === "solo" ? <input className="text-input" value={names[0]} onChange={(event) => setNames([event.target.value, ...names.slice(1)])} /> : <div className="name-grid">{names.map((name, index) => <input className="text-input" key={index} value={name} placeholder={`Team ${index + 1}`} onChange={(event) => setNames(names.map((current, item) => item === index ? event.target.value : current))} />)}</div>}</div>
       {studentMode && studentJoined && <div className="student-ready"><span>✓</span><div><b>Ready for {focusLabel}</b><small>{linkedClassWords.length ? `${linkedClassWords.length} class words` : "Class word bank"} · {durationMinutes} minutes</small></div></div>}
-      <div className="teacher-actions"><button className="btn btn-primary start-lesson" disabled={studentMode && !studentJoined} onClick={startMatch}>{studentMode ? "Start student table" : "Start vocabulary round"}<span>→</span></button>{!studentMode && <button className="share-link-trigger" onClick={onCreateStudentLink}>🔗 Get student link</button>}</div>
+      <div className="teacher-actions"><button className="btn btn-primary start-lesson" disabled={studentMode && !studentJoined} onClick={startMatch}>{studentMode ? "Start student table" : "Start vocabulary round"}<span>→</span></button><p className="round-random-note"><span aria-hidden="true">↻</span> Words reshuffle each time you start a round.</p>{!studentMode && <button className="share-link-trigger" onClick={onCreateStudentLink}>🔗 Get student link</button>}</div>
       {!studentMode && shareUrl && <div className="share-link-panel" aria-live="polite"><div><b>Student link ready</b><small>Students can open this link or paste it into Student Table.</small></div><div className="share-link-row"><label className="visually-hidden" htmlFor="student-share-link">Student classroom link</label><input id="student-share-link" className="share-link-input" value={shareUrl} readOnly onFocus={(event) => event.currentTarget.select()} /><button className="btn btn-mint" onClick={onCopyStudentLink}>Copy</button></div>{shareNotice && <p className="share-link-notice" role="status">{shareNotice}</p>}</div>}
       </section>{!studentMode && <section className="panel feature-card teacher-guide"><div className="eyebrow">For every learner</div><h3>Teachers set the pace.<br/>Students make it theirs.</h3><div className="feature-list"><div className="feature"><span className="feature-icon">01</span><div><b>Teacher sets the words</b><small>Build a focused set and share one classroom link.</small></div></div><div className="feature"><span className="feature-icon">02</span><div><b>Students join instantly</b><small>Each learner gets a personal table with no account.</small></div></div><div className="feature"><span className="feature-icon">03</span><div><b>Context over recall</b><small>Use complete sentences to make every word stick.</small></div></div><div className="feature"><span className="feature-icon">04</span><div><b>Review you can see</b><small>Every table shows which words need another turn.</small></div></div></div><div className="teacher-tip"><b>Teacher tip</b><span>Project the teacher view, then let students open their own Student Table.</span></div></section>}</div>{!studentMode && <><ClassFolderStudio classFolders={classFolders} activeFolder={activeFolder} selectedLibraryIds={selectedLibraryIds} folderNameDraft={folderNameDraft} setFolderNameDraft={setFolderNameDraft} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} libraryLevel={libraryLevel} setLibraryLevel={setLibraryLevel} libraryTopic={libraryTopic} setLibraryTopic={setLibraryTopic} folderNotice={folderNotice} folderFileInputRef={folderFileInputRef} libraryWords={libraryWords} onSelectFolder={onSelectFolder} onNewFolder={onNewFolder} onCreateFolder={onCreateFolder} onSaveFolder={onSaveFolder} onDeleteFolder={onDeleteFolder} onToggleLibraryWord={onToggleLibraryWord} onSelectVisibleWords={onSelectVisibleWords} onClearVisibleWords={onClearVisibleWords} onImportFolder={onImportFolder} onExportFolder={onExportFolder} /><IllustrationStudio customWords={customWords} studioDraft={studioDraft} setStudioDraft={setStudioDraft} studioNotice={studioNotice} importInputRef={importInputRef} onImport={onImport} onImportFile={onImportFile} onGenerate={onGenerate} onGenerateBatch={onGenerateBatch} onDelete={onDelete} generatingWordId={generatingWordId} illustrationBatch={illustrationBatch} /></>}</div><div className="footer-note">Teachers share the words · students practice on their own table · no accounts needed</div></main>;
 }
@@ -891,6 +913,21 @@ function parseImportedVocabulary(raw: string, existing: VocabularyWord[]): Vocab
 
 function slugify(value: string) { return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 42); }
 
-function Summary({ match, restart }: { match: MatchState; restart: () => void }) { const summaries = useMemo(() => summarize(match).sort((a, b) => b.score - a.score), [match]); const winner = summaries[0]; return <main className="app-shell"><Header /><div className="content"><section className="panel summary"><div className="eyebrow">The campus is open</div><h2>Match complete.</h2>{winner && <div className="winner"><div className="eyebrow">Top builder</div><h3>{match.players.find((player) => player.id === winner.playerId)?.name} · {winner.score} points</h3><p className="subtle">Core word: <strong>{winner.highestFamiliarityWord || "still discovering"}</strong>. Every valid use is a small step toward fluency.</p></div>}<table className="summary-table"><thead><tr><th>Builder</th><th>Score</th><th>Places</th><th>Successful uses</th></tr></thead><tbody>{summaries.map((item) => <tr key={item.playerId}><td><strong>{match.players.find((player) => player.id === item.playerId)?.name}</strong></td><td>{item.score}</td><td>{item.craftedStructures.length}</td><td>{item.successfulUses}</td></tr>)}</tbody></table><h3>Review shelf</h3><p className="subtle">Words from attempts that need another look:</p><div className="review">{[...new Set(summaries.flatMap((item) => item.reviewItems))].map((id) => <span key={id}>{vocabularyById[id]?.word || id}</span>)}{!summaries.some((item) => item.reviewItems.length) && <span>Everything got a turn ✨</span>}</div><div className="action-row" style={{ marginTop: 28 }}><button className="btn btn-primary" onClick={restart}>Build another campus</button></div></section></div></main>; }
+function Summary({ match, restart }: { match: MatchState; restart: () => void }) {
+  const summaries = useMemo(() => summarize(match).sort((a, b) => b.score - a.score), [match]);
+  const winner = summaries[0];
+  const grammarMistakes = match.submissions.filter((submission) => submission.grammarMistake);
+
+  return <main className="app-shell"><Header /><div className="content"><section className="panel summary">
+    <div className="eyebrow">The campus is open</div><h2>Match complete.</h2>
+    {winner && <div className="winner"><div className="eyebrow">Top builder</div><h3>{match.players.find((player) => player.id === winner.playerId)?.name} · {winner.score} points</h3><p className="subtle">Core word: <strong>{winner.highestFamiliarityWord || "still discovering"}</strong>. Every valid use is a small step toward fluency.</p></div>}
+    <table className="summary-table"><thead><tr><th>Builder</th><th>Score</th><th>Places</th><th>Successful uses</th></tr></thead><tbody>{summaries.map((item) => <tr key={item.playerId}><td><strong>{match.players.find((player) => player.id === item.playerId)?.name}</strong></td><td>{item.score}</td><td>{item.craftedStructures.length}</td><td>{item.successfulUses}</td></tr>)}</tbody></table>
+    <section className="grammar-summary" aria-labelledby="grammar-mistakes-title"><div className="summary-section-head"><div><h3 id="grammar-mistakes-title">Grammar mistakes</h3><p className="subtle">Sentences you chose to save. Type them again next time.</p></div><span className="summary-count">{grammarMistakes.length}</span></div>
+      {grammarMistakes.length ? <div className="grammar-mistake-list">{grammarMistakes.map((mistake) => { const builder = match.players.find((player) => player.id === mistake.playerId)?.name || "Builder"; const targets = mistake.targetWords.map((id) => vocabularyById[id]?.word || id).join(" + "); return <article className="grammar-mistake-card" key={mistake.id}><div className="grammar-mistake-meta"><strong>{builder}</strong><span>{targets}</span></div><p className="grammar-mistake-sentence">“{mistake.sentence}”</p><small>{mistake.feedback}</small></article>; })}</div> : <div className="grammar-empty">No grammar mistakes recorded this round. Keep building confidence.</div>}
+    </section>
+    <h3>Words marked for review</h3><p className="subtle">Words from the grammar mistakes you chose to save:</p><div className="review">{[...new Set(summaries.flatMap((item) => item.reviewItems))].map((id) => <span key={id}>{vocabularyById[id]?.word || id}</span>)}{!summaries.some((item) => item.reviewItems.length) && <span>Everything got a turn ✨</span>}</div>
+    <div className="action-row" style={{ marginTop: 28 }}><button className="btn btn-primary" onClick={restart}>Build another campus</button></div>
+  </section></div></main>;
+}
 
 function formatTime(seconds: number) { return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
