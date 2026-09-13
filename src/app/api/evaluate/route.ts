@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { evaluateRules, rulesFallback } from "@/lib/evaluation";
+import { evaluateRules, normalizeSentence, rulesFallback } from "@/lib/evaluation";
 import type { EvaluationRequest, EvaluationResult } from "@/types/game";
 
 export const runtime = "nodejs";
@@ -12,6 +12,8 @@ type ChatPayload = {
   }>;
   output_text?: unknown;
 };
+
+type ProviderEvaluation = Pick<EvaluationResult, "valid" | "confidence" | "reason" | "correctedSentence" | "relationshipSummary">;
 
 const COMPLETION_TOKEN_BUDGETS = [800, 1600] as const;
 
@@ -38,12 +40,14 @@ function contentToText(content: unknown): string {
   }).join("");
 }
 
-function extractAnswer(payload: ChatPayload): string {
+function extractAnswers(payload: ChatPayload): string[] {
   const choice = payload.choices?.[0];
-  return contentToText(choice?.message?.content)
-    || contentToText(choice?.message?.reasoning_content)
-    || contentToText(choice?.text)
-    || contentToText(payload.output_text);
+  return [
+    contentToText(choice?.message?.content),
+    contentToText(choice?.text),
+    contentToText(payload.output_text),
+    contentToText(choice?.message?.reasoning_content),
+  ].map((answer) => answer.trim()).filter((answer, index, answers) => Boolean(answer) && answers.indexOf(answer) === index);
 }
 
 function wasTruncated(payload: ChatPayload) {
@@ -58,6 +62,25 @@ function parseJsonAnswer(raw: string): Partial<EvaluationResult> {
     if (start < 0 || end <= start) throw new Error("AI evaluator returned unreadable JSON");
     return JSON.parse(cleaned.slice(start, end + 1)) as Partial<EvaluationResult>;
   }
+}
+
+function isCompleteAnswer(value: Partial<EvaluationResult>): value is ProviderEvaluation {
+  return typeof value.valid === "boolean"
+    && typeof value.confidence === "number"
+    && Number.isFinite(value.confidence)
+    && typeof value.reason === "string"
+    && typeof value.correctedSentence === "string"
+    && typeof value.relationshipSummary === "string";
+}
+
+function parseAnyAnswer(answers: string[]): ProviderEvaluation | null {
+  for (const answer of answers) {
+    try {
+      const parsed = parseJsonAnswer(answer);
+      if (isCompleteAnswer(parsed)) return parsed;
+    } catch { /* Try the next response field or retry the provider. */ }
+  }
+  return null;
 }
 
 export async function POST(request: Request) {
@@ -90,7 +113,7 @@ export async function POST(request: Request) {
   const started = Date.now();
   let receivedAnswer = false;
   try {
-    let parsed: Partial<EvaluationResult> | null = null;
+    let parsed: ProviderEvaluation | null = null;
     for (const [attempt, maxTokens] of COMPLETION_TOKEN_BUDGETS.entries()) {
       const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
         method: "POST",
@@ -105,28 +128,33 @@ export async function POST(request: Request) {
           // same JSON contract without spending a request on a 400 response.
           ...(!useAgnes ? { response_format: { type: "json_object" } } : {}),
           messages: [
-            { role: "system", content: "You evaluate an English vocabulary game sentence for grades 5-9. Return only compact JSON with valid (boolean), confidence (0 to 1), reason (one short supportive sentence), correctedSentence (string), and relationshipSummary (one short sentence explaining how the target words relate). Write directly to a primary-school learner using friendly, everyday English. Keep reason and relationshipSummary under 15 words each. Say clearly what works or what the learner should change. Never use technical language such as semantic, semantically, appropriate, comprehensible, coherence, grammatical, grammar, syntax, or contextually. Do not include markdown or reasoning. Accept understandable natural English; do not require perfect grammar. The sentence must use every target word in a way that makes sense." },
-            { role: "user", content: JSON.stringify({ ...input, task: "Check whether the sentence is clear and every target word makes sense in it." }) },
+            { role: "system", content: "You check an English vocabulary-game sentence for grades 5-9. Return only one compact JSON object with exactly these fields: valid (boolean), confidence (number from 0 to 1), reason (one short supportive sentence), correctedSentence (string), and relationshipSummary (one short sentence explaining how the target words relate). valid must be true only when the sentence is complete, every target word makes sense, and the English has no word-form, subject-verb agreement, tense, article, preposition, pronoun, modal-verb, singular/plural, spelling, or sentence-structure error. Ignore only capitalization and missing final punctuation. For an invalid sentence, set valid to false, identify the most useful change in plain language, and provide a minimally corrected sentence. For a valid sentence, correctedSentence must exactly equal the submitted sentence. Write directly to a primary-school learner in friendly, everyday English. Keep reason and relationshipSummary under 15 words each. Never use technical language; avoid terms such as semantic, syntax, or morphology. Do not include markdown, commentary, or reasoning outside the JSON object." },
+            { role: "user", content: JSON.stringify({ ...input, task: "Check the English sentence strictly and verify every target word is used meaningfully." }) },
           ],
         }),
       });
       if (!response.ok) throw new Error(`AI evaluator returned ${response.status}`);
       const payload = await response.json() as ChatPayload;
-      const raw = extractAnswer(payload);
-      if (raw) receivedAnswer = true;
+      const answers = extractAnswers(payload);
+      if (answers.length) receivedAnswer = true;
 
       if (wasTruncated(payload) && attempt < COMPLETION_TOKEN_BUDGETS.length - 1) continue;
-      if (!raw) throw new Error("AI evaluator returned no content");
-      if (wasTruncated(payload)) throw new Error("AI evaluator response was truncated");
-      parsed = parseJsonAnswer(raw);
-      break;
+      if (!answers.length && attempt >= COMPLETION_TOKEN_BUDGETS.length - 1) throw new Error("AI evaluator returned no content");
+      if (wasTruncated(payload) && attempt >= COMPLETION_TOKEN_BUDGETS.length - 1) throw new Error("AI evaluator response was truncated");
+      parsed = parseAnyAnswer(answers);
+      if (parsed) break;
+      if (attempt >= COMPLETION_TOKEN_BUDGETS.length - 1) throw new Error("AI evaluator returned unreadable or incomplete JSON");
     }
     if (!parsed) throw new Error("AI evaluator returned no result");
+    const correctedSentence = parsed.correctedSentence.trim() || input.sentence.trim();
+    const correctionChangesMeaningfulText = normalizeSentence(correctedSentence) !== normalizeSentence(input.sentence);
     const result: EvaluationResult = {
-      valid: parsed.valid === true,
+      // A correction is direct evidence of a language error, even if the model
+      // accidentally labels an understandable sentence as valid.
+      valid: parsed.valid === true && !correctionChangesMeaningfulText,
       confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5)),
       reason: typeof parsed.reason === "string" ? parsed.reason : "The evaluator checked your sentence.",
-      correctedSentence: typeof parsed.correctedSentence === "string" ? parsed.correctedSentence : input.sentence,
+      correctedSentence,
       relationshipSummary: typeof parsed.relationshipSummary === "string" ? parsed.relationshipSummary : "The target words were considered together.",
       source: "ai", provisional: false,
     };

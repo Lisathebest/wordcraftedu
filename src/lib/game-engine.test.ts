@@ -12,6 +12,7 @@ describe("evaluation rules", () => {
     expect(evaluateRules({ sentence: "We attended two lectures in the auditorium.", inputMethod: "text", targetWords: ["lecture", "auditorium"], gradeBand: "7-9" })).toBeNull();
     expect(evaluateRules({ sentence: "The scholarship reduces my pressure when buying a new textbook.", inputMethod: "text", targetWords: ["textbook", "scholarship"], gradeBand: "7-9" })).toBeNull();
     expect(evaluateRules({ sentence: "I put my beverage on top of the drawer next to the electronic outlet.", inputMethod: "text", targetWords: ["beverage", "drawer", "outlet"], gradeBand: "7-9" })).toBeNull();
+    expect(evaluateRules({ sentence: "She goes to school every day.", inputMethod: "text", targetWords: ["school"], gradeBand: "5-6" })).toBeNull();
   });
   it("rejects missing words and fragments instantly", () => {
     expect(evaluateRules({ sentence: "A pastry.", inputMethod: "text", targetWords: ["pastry", "beverage"], gradeBand: "5-6" })?.valid).toBe(false);

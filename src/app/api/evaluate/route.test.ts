@@ -56,7 +56,9 @@ describe("semantic evaluation route", () => {
     expect(systemPrompt).toContain("primary-school learner");
     expect(systemPrompt).toContain("Never use technical language");
     expect(systemPrompt).toContain("under 15 words each");
-    expect(JSON.parse(providerRequest.messages[1].content).task).toBe("Check whether the sentence is clear and every target word makes sense in it.");
+    expect(systemPrompt).toContain("valid must be true only when");
+    expect(systemPrompt).toContain("subject-verb agreement");
+    expect(JSON.parse(providerRequest.messages[1].content).task).toBe("Check the English sentence strictly and verify every target word is used meaningfully.");
     expect(result).toMatchObject({ valid: true, confidence: 0.94, source: "ai", provisional: false });
     expect(fetchMock).toHaveBeenCalledOnce();
   });
@@ -84,5 +86,66 @@ describe("semantic evaluation route", () => {
     expect(secondProviderRequest.max_tokens).toBe(1600);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({ valid: true, confidence: 0.9, source: "ai", provisional: false });
+  });
+
+  it("retries when a completed Agnes response is not valid JSON", async () => {
+    const complete = JSON.stringify({
+      valid: true,
+      confidence: 0.91,
+      reason: "The sentence is correct.",
+      correctedSentence: evaluationRequest.sentence,
+      relationshipSummary: "The beverage is consumed in the cafeteria.",
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(providerResponse("I will check the sentence now.", "stop"))
+      .mockResolvedValueOnce(providerResponse(complete, "stop"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(request());
+    const result = await response.json();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ valid: true, confidence: 0.91, source: "ai", provisional: false });
+  });
+
+  it("rejects a sentence whenever Agnes supplies a meaningful correction", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(providerResponse(JSON.stringify({
+      valid: true,
+      confidence: 0.92,
+      reason: "Change go to goes.",
+      correctedSentence: "She goes to school every day.",
+      relationshipSummary: "School names the place she attends.",
+    }), "stop"));
+    vi.stubGlobal("fetch", fetchMock);
+    const grammarRequest = new Request("http://localhost/api/evaluate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...evaluationRequest, sentence: "She go to school every day.", targetWords: ["school"] }),
+    });
+
+    const response = await POST(grammarRequest);
+    const result = await response.json();
+
+    expect(result).toMatchObject({ valid: false, correctedSentence: "She goes to school every day.", source: "ai" });
+  });
+
+  it("can parse valid JSON from a secondary Agnes response field", async () => {
+    const answer = JSON.stringify({
+      valid: true,
+      confidence: 0.9,
+      reason: "The sentence is correct.",
+      correctedSentence: evaluationRequest.sentence,
+      relationshipSummary: "The beverage is consumed in the cafeteria.",
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ finish_reason: "stop", message: { content: "not json", reasoning_content: answer } }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(request());
+    const result = await response.json();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({ valid: true, source: "ai", provisional: false });
   });
 });
