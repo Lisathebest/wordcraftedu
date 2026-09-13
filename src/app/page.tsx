@@ -240,7 +240,7 @@ export default function Home() {
 
   const importVocabulary = (raw: string) => {
     const parsed = parseImportedVocabulary(raw, [...fullVocabulary, ...customWords]);
-    if (!parsed.length) { setStudioNotice("No new words found. Add one word per line, or use CSV with word, translation, and level columns."); return; }
+    if (!parsed.length) { setStudioNotice("No new words found. Add one word per line, or use CSV with word, optional meaning/translation, and level columns."); return; }
     registerVocabularyWords(parsed);
     setCustomWords((current) => [...current, ...parsed]);
     setStudioDraft("");
@@ -814,7 +814,7 @@ function ClassFolderStudio({ classFolders, activeFolder, selectedLibraryIds, fol
   const visibleIds = [...builtInWords, ...teacherWords].map((word) => word.id);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedLibraryIds.includes(id));
   const toggleVisible = () => allVisibleSelected ? onClearVisibleWords(visibleIds) : onSelectVisibleWords(visibleIds);
-  const renderWord = (word: VocabularyWord) => <label className={`library-word ${selectedLibraryIds.includes(word.id) ? "selected" : ""}`} key={word.id}><input type="checkbox" checked={selectedLibraryIds.includes(word.id)} onChange={() => onToggleLibraryWord(word.id)} /><span><b>{word.word}</b><small>{word.chinese || "No translation"} · {word.level}</small></span></label>;
+    const renderWord = (word: VocabularyWord) => <label className={`library-word ${selectedLibraryIds.includes(word.id) ? "selected" : ""}`} key={word.id}><input type="checkbox" checked={selectedLibraryIds.includes(word.id)} onChange={() => onToggleLibraryWord(word.id)} /><span><b>{word.word}</b><small>{word.chinese || "No meaning provided"} · {word.level}</small></span></label>;
 
   return <section className="panel class-library">
     <div className="library-heading"><div><div className="eyebrow">Teacher library · 班级词汇文件夹</div><h2>Keep each class set in its own folder</h2><p className="subtle">Choose from the {fullVocabulary.length}-word bank or your imported words. Saved class folders stay separate from the starter testing set.</p></div><span className="library-count">{classFolders.length}<small>folders</small></span></div>
@@ -849,11 +849,11 @@ function IllustrationStudio({ customWords, studioDraft, setStudioDraft, studioNo
     <div className="studio-grid">
       <div className="import-column">
         <div className="studio-label">1 · Add your words</div>
-        <div className="import-drop"><div className="import-icon">＋</div><div><b>Upload a vocabulary file</b><small>CSV / TXT / JSON · one word per line also works</small></div><input ref={importInputRef} className="visually-hidden" type="file" accept=".csv,.txt,.json,text/csv,text/plain,application/json" onChange={(event) => { onImportFile(event.target.files?.[0]); event.currentTarget.value = ""; }} /><button className="btn btn-ghost" onClick={() => importInputRef.current?.click()}>Choose file</button></div>
-        <div className="paste-row"><textarea className="studio-textarea" value={studioDraft} onChange={(event) => setStudioDraft(event.target.value)} placeholder={"Or paste words here…\ncompass, 指南针, L1\ncurious, 好奇的, L2"} /><button className="btn btn-primary" disabled={!studioDraft.trim()} onClick={() => onImport(studioDraft)}>Add words</button></div>
+        <div className="import-drop"><div className="import-icon">＋</div><div><b>Upload a vocabulary file</b><small>CSV / TXT / JSON · optional meaning/translation · one word per line also works</small></div><input ref={importInputRef} className="visually-hidden" type="file" accept=".csv,.txt,.json,text/csv,text/plain,application/json" onChange={(event) => { onImportFile(event.target.files?.[0]); event.currentTarget.value = ""; }} /><button className="btn btn-ghost" onClick={() => importInputRef.current?.click()}>Choose file</button></div>
+        <div className="paste-row"><textarea className="studio-textarea" value={studioDraft} onChange={(event) => setStudioDraft(event.target.value)} placeholder={"Or paste words here…\ncompass, direction finder, L1\ncurious, interested in learning, L2"} /><button className="btn btn-primary" disabled={!studioDraft.trim()} onClick={() => onImport(studioDraft)}>Add words</button></div>
         {studioNotice && <div className="studio-notice" role="status">{studioNotice}</div>}
         <div className="studio-label studio-label-spaced">Your imported set {customWords.length > 0 && <span>{customWords.filter((word) => isGeneratedIllustration(word.image)).length}/{customWords.length} illustrated</span>}</div>
-        {customWords.length ? <div className="custom-word-list">{customWords.map((word) => { const isGenerated = isGeneratedIllustration(word.image); const active = generatingWordId === word.id; return <div className={`custom-word-row ${active ? "is-drawing" : ""}`} key={word.id}><img src={word.image || PENDING_WORD_IMAGE} alt=""/><div className="custom-word-copy"><b>{word.word}</b><small>{word.chinese || "No translation"} · {word.level}</small></div><span className={`art-status ${isGenerated ? "ready" : "waiting"}`}>{active ? "Drawing…" : isGenerated ? "Illustrated" : "Needs art"}</span><button className="btn btn-mint art-button" disabled={generatingWordId !== null} onClick={() => onGenerate(word.id)}>{active ? "Drawing…" : isGenerated ? "Redraw" : "Generate art"}</button><button className="delete-word" aria-label={`Delete ${word.word}`} disabled={generatingWordId !== null} onClick={() => onDelete(word.id)}>Delete</button></div>; })}</div> : <div className="studio-empty"><span>✎</span><div><b>Start by adding your words.</b><small>Use CSV, TXT, or JSON, or paste one word per line. Then generate the missing art for the set.</small></div></div>}
+        {customWords.length ? <div className="custom-word-list">{customWords.map((word) => { const isGenerated = isGeneratedIllustration(word.image); const active = generatingWordId === word.id; return <div className={`custom-word-row ${active ? "is-drawing" : ""}`} key={word.id}><img src={word.image || PENDING_WORD_IMAGE} alt=""/><div className="custom-word-copy"><b>{word.word}</b><small>{word.chinese || "No meaning provided"} · {word.level}</small></div><span className={`art-status ${isGenerated ? "ready" : "waiting"}`}>{active ? "Drawing…" : isGenerated ? "Illustrated" : "Needs art"}</span><button className="btn btn-mint art-button" disabled={generatingWordId !== null} onClick={() => onGenerate(word.id)}>{active ? "Drawing…" : isGenerated ? "Redraw" : "Generate art"}</button><button className="delete-word" aria-label={`Delete ${word.word}`} disabled={generatingWordId !== null} onClick={() => onDelete(word.id)}>Delete</button></div>; })}</div> : <div className="studio-empty"><span>✎</span><div><b>Start by adding your words.</b><small>Use CSV, TXT, or JSON, or paste one word per line. Then generate the missing art for the set.</small></div></div>}
       </div>
     </div>
   </section>;
@@ -862,7 +862,7 @@ function IllustrationStudio({ customWords, studioDraft, setStudioDraft, studioNo
 function parseImportedVocabulary(raw: string, existing: VocabularyWord[]): VocabularyWord[] {
   const trimmed = raw.trim();
   if (!trimmed) return [];
-  let records: Array<{ word?: unknown; translation?: unknown; chinese?: unknown; level?: unknown }> = [];
+  let records: Array<{ word?: unknown; translation?: unknown; meaning?: unknown; definition?: unknown; gloss?: unknown; chinese?: unknown; level?: unknown }> = [];
   if (trimmed.startsWith("[")) {
     try { const parsed = JSON.parse(trimmed); if (Array.isArray(parsed)) records = parsed.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object")); } catch { records = []; }
   }
@@ -881,7 +881,7 @@ function parseImportedVocabulary(raw: string, existing: VocabularyWord[]): Vocab
     let suffix = 2;
     while (existingIds.has(id)) id = `custom-${base}-${suffix++}`;
     const level = typeof record.level === "string" && /^l[123]$/i.test(record.level) ? record.level.toUpperCase() as VocabularyWord["level"] : "L1";
-    const translation = typeof record.translation === "string" ? record.translation : typeof record.chinese === "string" ? record.chinese : "";
+    const translation = [record.translation, record.meaning, record.definition, record.gloss, record.chinese].find((value): value is string => typeof value === "string") || "";
     added.push({ id, number: 1000 + existing.length + added.length, word, level, chinese: translation, collocations: [word, `use ${word}`, `learn ${word}`], image: PENDING_WORD_IMAGE, pronunciation: `/${word}/`, fallbackStructure: word[0].toUpperCase() + word.slice(1) });
     existingWords.add(word.toLowerCase());
     existingIds.add(id);

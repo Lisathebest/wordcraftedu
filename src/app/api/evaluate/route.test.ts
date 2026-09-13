@@ -148,4 +148,29 @@ describe("semantic evaluation route", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(result).toMatchObject({ valid: true, source: "ai", provisional: false });
   });
+
+  it("falls back to DeepSeek when Agnes is rate limited", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "deepseek-test-key");
+    vi.stubEnv("DEEPSEEK_BASE_URL", "https://deepseek.example/v1");
+    vi.stubEnv("DEEPSEEK_MODEL", "deepseek-test");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "rate limited" } }), { status: 429 }))
+      .mockResolvedValueOnce(providerResponse(JSON.stringify({
+        valid: true,
+        confidence: 0.88,
+        reason: "Both words fit the sentence.",
+        correctedSentence: evaluationRequest.sentence,
+        relationshipSummary: "The beverage is consumed in the cafeteria.",
+      }), "stop"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(request());
+    const result = await response.json();
+    const fallbackRequest = JSON.parse(fetchMock.mock.calls[1][1]?.body as string);
+
+    expect(fetchMock.mock.calls[0][0]).toBe("https://example.test/v1/chat/completions");
+    expect(fetchMock.mock.calls[1][0]).toBe("https://deepseek.example/v1/chat/completions");
+    expect(fallbackRequest.response_format).toEqual({ type: "json_object" });
+    expect(result).toMatchObject({ valid: true, confidence: 0.88, source: "ai", provisional: false });
+  });
 });

@@ -12,8 +12,8 @@ const ILLUSTRATION_STYLE_PROMPT = [
 
 export function buildIllustrationPrompt(word: string, translation: string) {
   const exactMeaning = translation
-    ? `Exact subject meaning: the English word “${word}” in the teacher-provided sense “${translation}”. Depict that exact meaning.`
-    : `Exact subject meaning: the ordinary literal classroom meaning of the English word “${word}”. The subject must be identifiable without relying on written text.`;
+    ? `Exact subject meaning: the English vocabulary word “${word}”, using the teacher-provided meaning or translation “${translation}”. The gloss may be written in any language; use it only as semantic guidance and never reproduce it as text. Depict that exact meaning.`
+    : `Exact subject meaning: the ordinary literal classroom meaning of the English word “${word}”. No teacher meaning or translation was provided, so rely on the English word itself. The subject must be identifiable without relying on written text.`;
 
   return [
     ILLUSTRATION_STYLE_PROMPT,
