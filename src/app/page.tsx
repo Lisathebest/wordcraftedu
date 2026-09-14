@@ -698,7 +698,7 @@ function BuildingPanel({ player, match, selectedBuildingId, selectedFloor, targe
   </section>;
 }
 
-function Header() { return <header className="topbar"><a className="brand" href="#"><span className="brand-mark">W</span><span className="brand-name">Wordcraft Classroom</span></a><span className="pill">For teachers &amp; active students</span></header>; }
+function Header() { return <header className="topbar"><a className="brand" href="#" aria-label="Wordcraft Classroom home"><span className="brand-logo-frame"><img className="brand-logo" src="/wordcraft-logo.png" alt="Wordcraft Classroom" /></span></a><span className="pill">For teachers &amp; active students</span></header>; }
 
 type SetupProps = {
   mode: MatchMode;
