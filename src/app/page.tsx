@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { abilityCopy, buildingImageForWord, fullVocabulary, recipes, registerVocabularyWords, vocabularyById } from "@/data/content";
 import { makeClassFolder, parseClassFolderExport, removeClassFolder, serializeClassFolder, serializeClassFolderCsv, updateClassFolder, type ClassFolder } from "@/lib/classroom-folders";
 import { evaluateRules, evaluationCacheKey } from "@/lib/evaluation";
@@ -122,6 +122,7 @@ export default function Home() {
   const [selected, setSelected] = useState<string[]>([]);
   const [sentence, setSentence] = useState("");
   const [inputMethod, setInputMethod] = useState<InputMethod>("text");
+  const [revealedDefinitions, setRevealedDefinitions] = useState<Set<string>>(() => new Set());
   const [feedback, setFeedback] = useState<EvaluationResult | null>(null);
   const [feedbackSubmissionId, setFeedbackSubmissionId] = useState<string | null>(null);
   const [pendingReview, setPendingReview] = useState<{ result: EvaluationResult; sentence: string; targets: string[] } | null>(null);
@@ -137,6 +138,7 @@ export default function Home() {
   const voiceInterimText = useRef("");
   const voiceRestartTimer = useRef<number | null>(null);
   const sentenceInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const definitionHoldTimer = useRef<number | null>(null);
 
   const selectMode = (nextMode: MatchMode) => {
     setMode(nextMode);
@@ -197,6 +199,14 @@ export default function Home() {
       setAbilityTargetId("");
     }
   }, [activePlayer?.id, activePlayer?.structures.length, selectedBuildingId]);
+
+  const clearDefinitionHold = useCallback(() => {
+    if (definitionHoldTimer.current !== null) window.clearTimeout(definitionHoldTimer.current);
+    definitionHoldTimer.current = null;
+  }, []);
+
+  useEffect(() => () => clearDefinitionHold(), [clearDefinitionHold]);
+  useEffect(() => setRevealedDefinitions(new Set()), [activePlayer?.id, match?.id]);
 
   useEffect(() => {
     const savedWords = loadCustomWords();
@@ -520,6 +530,25 @@ export default function Home() {
 
   const speak = (word: string) => { if (typeof window !== "undefined" && "speechSynthesis" in window) { window.speechSynthesis.cancel(); const utterance = new SpeechSynthesisUtterance(word); utterance.rate = .78; window.speechSynthesis.speak(utterance); } setMatch((current) => current ? notePronunciation(current) : current); };
 
+  const startDefinitionHold = (event: ReactPointerEvent<HTMLDivElement>, wordId: string) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    clearDefinitionHold();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    definitionHoldTimer.current = window.setTimeout(() => {
+      setRevealedDefinitions((current) => {
+        const next = new Set(current);
+        next.add(wordId);
+        return next;
+      });
+      definitionHoldTimer.current = null;
+    }, 550);
+  };
+
+  const endDefinitionHold = (event: ReactPointerEvent<HTMLDivElement>) => {
+    clearDefinitionHold();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
   const startVoice = () => {
     const SpeechRecognition = (window as Window & { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike }).SpeechRecognition || (window as Window & { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition;
     if (!SpeechRecognition) { setFeedback({ valid: false, confidence: 1, reason: "This browser does not provide speech recognition. Try Chrome or Safari, or type the sentence instead.", correctedSentence: "", relationshipSummary: "", source: "rules", provisional: false }); setFeedbackSubmissionId(null); return; }
@@ -651,8 +680,8 @@ export default function Home() {
   return <main className="app-shell"><Header /><div className="content">
     <div className="game-top"><div className="game-title"><div className="eyebrow">{match.mode === "student" ? "Student table" : match.mode === "solo" ? "Individual practice" : "Team rotation"}</div><h2>{activePlayer.name}'s turn</h2></div><div className={`timer ${match.remainingSeconds < 90 ? "warning" : ""}`}><span className="timer-dot" />{formatTime(match.remainingSeconds)}</div><button className="btn btn-ghost" onClick={finishMatch}>End round</button></div>
     {match.mode === "local" && <div className="player-tabs">{match.players.map((player, index) => <button key={player.id} className={`player-tab ${index === match.activeSeat ? "active" : ""}`} onClick={() => { stopVoice(); setVoiceStatus(null); setSelected([]); setSentence(""); setFeedback(null); setFeedbackSubmissionId(null); setPendingReview(null); setSelectedBuildingId(null); setSelectedFloor(1); setAbilityTargetId(""); setMatch({ ...match, activeSeat: index }); }}>{player.name} · {player.score} pts</button>)}</div>}
-    <div className="game-grid"><section className="panel workspace"><div className="workspace-head"><div><div className="eyebrow">Your word shelf</div><h3>Choose ingredients</h3><div className="subtle">Select one word for a focused build, or several words to make a richer sentence. Known recipes can hide inside a larger combination.</div></div><span className="pill">{selected.length}/{selectionLimit} selected</span></div>
-      <div className="hand">{activePlayer.hand.map((id) => { const item = vocabularyById[id]; const familiarity = activePlayer.familiarity[id] || 0; const toggle = () => setSelected((current) => current.includes(id) ? current.filter((word) => word !== id) : current.length < selectionLimit ? [...current, id] : current); return <div key={id} className={`word-card ${selected.includes(id) ? "selected" : ""}`} role="button" tabIndex={0} onClick={toggle} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); } }}><button className="speak" title={`Hear ${item.word}`} onClick={(event) => { event.stopPropagation(); speak(item.word); }}>🔊</button><img src={item.image} alt=""/><b>{item.word}</b><small>{item.chinese} · {item.level}</small><span className="familiarity" aria-label={`${familiarity} familiarity`}>{[0,1,2,3,4].map((dot) => <i key={dot} className={dot < Math.min(5, familiarity) ? "on" : ""} />)}</span></div>; })}</div>
+    <div className="game-grid"><section className="panel workspace"><div className="workspace-head"><div><div className="eyebrow">Your word shelf</div><h3>Choose ingredients</h3><div className="subtle">Select one word for a focused build, or several words to make a richer sentence. Known recipes can hide inside a larger combination. Press and hold a card to reveal its meaning.</div></div><span className="pill">{selected.length}/{selectionLimit} selected</span></div>
+      <div className="hand">{activePlayer.hand.map((id) => { const item = vocabularyById[id]; const familiarity = activePlayer.familiarity[id] || 0; const definitionRevealed = revealedDefinitions.has(id); const toggle = () => setSelected((current) => current.includes(id) ? current.filter((word) => word !== id) : current.length < selectionLimit ? [...current, id] : current); return <div key={id} className={`word-card ${selected.includes(id) ? "selected" : ""}`} role="button" tabIndex={0} aria-label={`${item.word}. ${definitionRevealed ? `${item.chinese}, ${item.level}` : "Meaning hidden. Press and hold to reveal."}`} onClick={toggle} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); } }} onPointerDown={(event) => startDefinitionHold(event, id)} onPointerUp={endDefinitionHold} onPointerCancel={endDefinitionHold} onPointerLeave={endDefinitionHold} onContextMenu={(event) => event.preventDefault()}><button className="speak" title={`Hear ${item.word}`} onClick={(event) => { event.stopPropagation(); speak(item.word); }}>🔊</button><img src={item.image} alt=""/><b>{item.word}</b><small className={`word-definition ${definitionRevealed ? "revealed" : "hidden"}`}>{definitionRevealed ? `${item.chinese} · ${item.level}` : "Press and hold to reveal"}</small><span className="familiarity" aria-label={`${familiarity} familiarity`}>{[0,1,2,3,4].map((dot) => <i key={dot} className={dot < Math.min(5, familiarity) ? "on" : ""} />)}</span></div>; })}</div>
       <div className="sentence-area"><div className="eyebrow">Make it meaningful</div><p className="subtle">Use <strong>{selectedLabels || "your selected words"}</strong> in a complete English sentence.</p><textarea ref={sentenceInputRef} className="sentence-box" value={sentence} onChange={(event) => { setSentence(event.target.value); setInputMethod("text"); setVoiceStatus(null); }} placeholder="Example: I bought a pastry, a cold beverage, and a textbook at the cafeteria." />{inputMethod === "voice" && <p className="voice-hint">Voice → text writes the transcript into this box. You can edit it before crafting.</p>}<div className="action-row"><button className="btn btn-primary" disabled={!selected.length || !sentence.trim() || isEvaluating} onClick={evaluate}>{isEvaluating ? "Checking…" : selected.length > 1 ? `Craft with ${selected.length} words` : "Build with this word"}</button><button className={`btn ${isListening ? "btn-coral" : "btn-mint"}`} aria-pressed={isListening} onClick={isListening ? stopVoice : startVoice}>{isListening ? "Listening… tap to stop" : "🎙 Voice → text"}</button><span className="microcopy">{voiceStatus || (inputMethod === "voice" ? "Voice transcript ready" : "Text input")} · select up to {selectionLimit} words</span></div>{feedback && <div className={`feedback ${feedback.valid ? "" : "bad"}`}><strong>{feedback.valid ? "✨ That works" : "Not quite yet"}</strong><p>{feedback.reason}</p>{!feedback.valid && !pendingReview && currentAttempt && <div className="grammar-mistake-row"><button className="btn btn-ghost" disabled={Boolean(currentAttempt.grammarMistake)} onClick={() => setMatch((current) => current ? recordGrammarMistake(current, currentAttempt.id) : current)}>{currentAttempt.grammarMistake ? "✓ Grammar mistake recorded" : "＋ Record grammar mistake"}</button><span>Type it again above when you are ready.</span></div>}{feedback.relationshipSummary && <p className="subtle">{feedback.relationshipSummary}</p>}{feedback.provisional && <div className="provisional">Could not complete the AI check · count it as practice or edit and retry.</div>}{pendingReview && <div className="action-row"><button className="btn btn-mint" onClick={countPendingPractice}>Count as practice</button><button className="btn btn-ghost" onClick={retryPending}>Edit and retry</button></div>}</div>}</div>
     </section><aside className="side-stack"><section className="panel side-card"><h3>Your world</h3><div className="score-row"><span>World score</span><span className="score">{activePlayer.score}</span></div><div className="score-row"><span>Recipes discovered</span><span className="score">{activePlayer.discoveredRecipes.length}/{recipes.length}</span></div><div className="score-row"><span>Core word</span><span className="score">{coreWord(activePlayer) ? vocabularyById[coreWord(activePlayer)]?.word : "—"}</span></div></section><section className="panel side-card"><h3>How to play</h3><p className="subtle">A single word grows familiarity. A meaningful pair unlocks a new place. Borrowing another player’s word helps both worlds learn. Open the campus map below to choose a floor and spend a building ability.</p>{match.lastInteraction && <div className="feedback interaction-feed"><strong>Campus message</strong><p>{match.lastInteraction}</p></div>}{match.previewWord && <div className="feedback"><strong>Next draw</strong><p>{vocabularyById[match.previewWord]?.word}</p></div>}</section></aside></div>
     <div className="campus-tools"><BuildingPanel player={activePlayer} match={match} selectedBuildingId={selectedBuildingId} selectedFloor={selectedFloor} targetPlayerId={abilityTargetId} onSelectBuilding={(id) => { setSelectedBuildingId(id); setSelectedFloor(1); setAbilityTargetId(""); }} onSelectFloor={setSelectedFloor} onSelectTarget={setAbilityTargetId} onUseAbility={useSelectedAbility} /><RecipeBook player={activePlayer} onTryFormula={loadFormula} onVisitBuilding={visitBuilding} /></div>
