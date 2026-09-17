@@ -24,7 +24,7 @@ function imageFromPayload(payload: ImagePayload) {
   const generated = payload.data?.[0];
   if (generated?.b64_json) return generated.b64_json.startsWith("data:") ? generated.b64_json : `data:image/png;base64,${generated.b64_json}`;
   if (generated?.url) return generated.url;
-  throw new Error("Image generation returned no image");
+  throw new Error("Image provider returned no usable image (check its response format).");
 }
 
 async function generateImage(word: string, translation: string, apiKey: string) {
@@ -38,7 +38,7 @@ async function generateImage(word: string, translation: string, apiKey: string) 
     }),
     signal: AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
   });
-  if (!response.ok) throw new Error(`Image generation failed (${response.status})`);
+  if (!response.ok) throw new Error(`Image provider rejected the request (HTTP ${response.status}). Check the key's model access and image endpoint.`);
   return imageFromPayload(await response.json() as ImagePayload);
 }
 
@@ -58,7 +58,12 @@ export async function POST(request: Request) {
   try {
     const image = await generateImage(word, translation, apiKey);
     return NextResponse.json({ image, source: "ai", provider: "swy", model: IMAGE_MODEL });
-  } catch {
-    return NextResponse.json({ image: fallbackImage, source: "fallback", message: "The generator is unavailable right now. This word was not replaced with another image; check the API key and try again." });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Unknown provider error";
+    console.error("Illustration generation failed", { detail });
+    const message = detail.startsWith("Image provider")
+      ? detail
+      : "Could not reach the image provider. Check the Vercel function logs and try again.";
+    return NextResponse.json({ image: fallbackImage, source: "fallback", message });
   }
 }
