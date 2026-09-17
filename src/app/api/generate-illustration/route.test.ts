@@ -34,8 +34,12 @@ describe("illustration generation route", () => {
 
   it("keeps the pending placeholder if the provider fails", async () => {
     vi.stubEnv("SWY_IMAGE_API_KEY", "test-key");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("unavailable", { status: 503 })));
-    const result = await (await POST(request())).json();
+    const fetchMock = vi.fn().mockResolvedValue(new Response("unavailable", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await POST(request());
+    const result = await response.json();
+    expect(response.status).toBe(502);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ source: "fallback", image: "/illustration-studio/pending-word.svg" });
     expect(result.message).toContain("HTTP 503");
   });
@@ -45,24 +49,26 @@ describe("illustration generation route", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: "invalid api key" } }), { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await (await POST(request())).json();
+    const response = await POST(request());
+    const result = await response.json();
 
+    expect(response.status).toBe(502);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ source: "fallback", image: "/illustration-studio/pending-word.svg" });
     expect(result.message).toContain("HTTP 401");
     expect(result.message).toContain("invalid api key");
   });
 
-  it("retries transient provider failures before succeeding", async () => {
-    vi.stubEnv("SWY_IMAGE_API_KEY", "test-key");
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response("busy", { status: 503 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ b64_json: "aGVsbG8=" }] }), { status: 200 }));
+  it("does not call a paid image endpoint when no key is configured", async () => {
+    vi.stubEnv("SWY_IMAGE_API_KEY", "");
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await (await POST(request())).json();
+    const response = await POST(request());
+    const result = await response.json();
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result).toMatchObject({ image: "data:image/png;base64,aGVsbG8=", source: "ai" });
+    expect(response.status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.source).toBe("demo");
   });
 });

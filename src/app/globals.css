@@ -263,7 +263,6 @@ h1 { font-family:Fraunces,serif; letter-spacing:-.055em; line-height:.98; font-s
 .batch-button { white-space:nowrap; padding:12px 14px; }
 .studio-heading h2 { font-family:Fraunces,serif; font-size:31px; letter-spacing:-.045em; margin:5px 0 6px; }
 .studio-heading p { max-width:750px; margin-bottom:0; }
-.studio-warning { margin-top:10px !important; color:#9b5f46; font-size:12px; font-weight:600; }
 .studio-count { min-width:78px; height:78px; display:grid; place-items:center; align-content:center; border-radius:22px; background:#f4e8c8; color:#8c702e; font:700 28px Fraunces,serif; border:1px solid #eed9a4; }
 .studio-count small { display:block; font:700 10px 'DM Sans',sans-serif; text-transform:uppercase; letter-spacing:.08em; color:#a18c60; }
 .studio-grid { display:grid; grid-template-columns:1fr; gap:26px; }

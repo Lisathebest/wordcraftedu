@@ -1,0 +1,812 @@
+[
+  {
+    "id": "dumbbell",
+    "number": 1,
+    "level": "L1",
+    "word": "dumbbell",
+    "chinese": "哑铃",
+    "collocations": [
+      "lift dumbbells",
+      "heavy dumbbells",
+      "dumbbell workout"
+    ],
+    "image": "/vocab/dumbbell.png",
+    "pronunciation": "/dumbbell/",
+    "fallbackStructure": "Dumbbell"
+  },
+  {
+    "id": "treadmill",
+    "number": 2,
+    "level": "L1",
+    "word": "treadmill",
+    "chinese": "跑步机",
+    "collocations": [
+      "run on a treadmill",
+      "treadmill speed",
+      "get on/off the treadmill"
+    ],
+    "image": "/vocab/treadmill.png",
+    "pronunciation": "/treadmill/",
+    "fallbackStructure": "Treadmill"
+  },
+  {
+    "id": "kettle",
+    "number": 3,
+    "level": "L1",
+    "word": "kettle",
+    "chinese": "烧水壶",
+    "collocations": [
+      "boil water in a kettle",
+      "electric kettle",
+      "tea kettle"
+    ],
+    "image": "/vocab/kettle.png",
+    "pronunciation": "/kettle/",
+    "fallbackStructure": "Kettle"
+  },
+  {
+    "id": "locker",
+    "number": 4,
+    "level": "L1",
+    "word": "locker",
+    "chinese": "储物柜",
+    "collocations": [
+      "locker room",
+      "store items in a locker",
+      "assigned locker"
+    ],
+    "image": "/vocab/locker.png",
+    "pronunciation": "/locker/",
+    "fallbackStructure": "Locker"
+  },
+  {
+    "id": "mat",
+    "number": 5,
+    "level": "L1",
+    "word": "mat",
+    "chinese": "垫子",
+    "collocations": [
+      "yoga mat",
+      "roll out a mat",
+      "stretch on the mat"
+    ],
+    "image": "/vocab/mat.png",
+    "pronunciation": "/mat/",
+    "fallbackStructure": "Mat"
+  },
+  {
+    "id": "drawer",
+    "number": 6,
+    "level": "L1",
+    "word": "drawer",
+    "chinese": "抽屉",
+    "collocations": [
+      "top/bottom drawer",
+      "open a drawer",
+      "desk drawer"
+    ],
+    "image": "/vocab/drawer.png",
+    "pronunciation": "/drawer/",
+    "fallbackStructure": "Drawer"
+  },
+  {
+    "id": "shelf",
+    "number": 7,
+    "level": "L1",
+    "word": "shelf",
+    "chinese": "置物架",
+    "collocations": [
+      "bookshelf",
+      "put on the shelf",
+      "shelf space"
+    ],
+    "image": "/vocab/shelf.png",
+    "pronunciation": "/shelf/",
+    "fallbackStructure": "Shelf"
+  },
+  {
+    "id": "outlet",
+    "number": 8,
+    "level": "L1",
+    "word": "outlet",
+    "chinese": "电源插座",
+    "collocations": [
+      "power outlet",
+      "wall outlet",
+      "plug into an outlet"
+    ],
+    "image": "/vocab/outlet.png",
+    "pronunciation": "/outlet/",
+    "fallbackStructure": "Outlet"
+  },
+  {
+    "id": "bulb",
+    "number": 9,
+    "level": "L1",
+    "word": "bulb",
+    "chinese": "灯泡",
+    "collocations": [
+      "light bulb",
+      "replace a bulb",
+      "burn out"
+    ],
+    "image": "/vocab/bulb.png",
+    "pronunciation": "/bulb/",
+    "fallbackStructure": "Bulb"
+  },
+  {
+    "id": "dormitory",
+    "number": 10,
+    "level": "L1",
+    "word": "dormitory",
+    "chinese": "宿舍",
+    "collocations": [
+      "dorm room",
+      "live in a dormitory",
+      "move into a dorm"
+    ],
+    "image": "/vocab/dormitory.png",
+    "pronunciation": "/dormitory/",
+    "fallbackStructure": "Dormitory"
+  },
+  {
+    "id": "cafeteria",
+    "number": 11,
+    "level": "L1",
+    "word": "cafeteria",
+    "chinese": "食堂",
+    "collocations": [
+      "campus cafeteria",
+      "cafeteria food",
+      "grab a bite at the cafeteria"
+    ],
+    "image": "/vocab/cafeteria.png",
+    "pronunciation": "/cafeteria/",
+    "fallbackStructure": "Cafeteria"
+  },
+  {
+    "id": "textbook",
+    "number": 12,
+    "level": "L1",
+    "word": "textbook",
+    "chinese": "教科书",
+    "collocations": [
+      "required textbook",
+      "digital textbook",
+      "review the textbook"
+    ],
+    "image": "/vocab/textbook.png",
+    "pronunciation": "/textbook/",
+    "fallbackStructure": "Textbook"
+  },
+  {
+    "id": "assignment",
+    "number": 13,
+    "level": "L1",
+    "word": "assignment",
+    "chinese": "作业",
+    "collocations": [
+      "homework assignment",
+      "submit an assignment",
+      "assignment due date"
+    ],
+    "image": "/vocab/assignment.png",
+    "pronunciation": "/assignment/",
+    "fallbackStructure": "Assignment"
+  },
+  {
+    "id": "syllabus",
+    "number": 14,
+    "level": "L1",
+    "word": "syllabus",
+    "chinese": "教学大纲",
+    "collocations": [
+      "course syllabus",
+      "check the syllabus",
+      "review the syllabus"
+    ],
+    "image": "/vocab/syllabus.png",
+    "pronunciation": "/syllabus/",
+    "fallbackStructure": "Syllabus"
+  },
+  {
+    "id": "lecture",
+    "number": 15,
+    "level": "L1",
+    "word": "lecture",
+    "chinese": "讲座/课",
+    "collocations": [
+      "attend a lecture",
+      "lecture hall",
+      "take notes during the lecture"
+    ],
+    "image": "/vocab/lecture.png",
+    "pronunciation": "/lecture/",
+    "fallbackStructure": "Lecture"
+  },
+  {
+    "id": "receipt",
+    "number": 16,
+    "level": "L1",
+    "word": "receipt",
+    "chinese": "收据",
+    "collocations": [
+      "sales receipt",
+      "keep the receipt",
+      "ask for a receipt"
+    ],
+    "image": "/vocab/receipt.png",
+    "pronunciation": "/receipt/",
+    "fallbackStructure": "Receipt"
+  },
+  {
+    "id": "wallet",
+    "number": 17,
+    "level": "L1",
+    "word": "wallet",
+    "chinese": "钱包",
+    "collocations": [
+      "leather wallet",
+      "lose my wallet",
+      "pull out my wallet"
+    ],
+    "image": "/vocab/wallet.png",
+    "pronunciation": "/wallet/",
+    "fallbackStructure": "Wallet"
+  },
+  {
+    "id": "luggage",
+    "number": 18,
+    "level": "L1",
+    "word": "luggage",
+    "chinese": "行李",
+    "collocations": [
+      "heavy luggage",
+      "carry-on luggage",
+      "pack my luggage"
+    ],
+    "image": "/vocab/luggage.png",
+    "pronunciation": "/luggage/",
+    "fallbackStructure": "Luggage"
+  },
+  {
+    "id": "refresher",
+    "number": 19,
+    "level": "L2",
+    "word": "refresher",
+    "chinese": "进修课程/复习课",
+    "collocations": [
+      "refresher course",
+      "quick refresher",
+      "take a refresher"
+    ],
+    "image": "/vocab/refresher.png",
+    "pronunciation": "/refresher/",
+    "fallbackStructure": "Refresher"
+  },
+  {
+    "id": "landlord",
+    "number": 20,
+    "level": "L2",
+    "word": "landlord",
+    "chinese": "房东",
+    "collocations": [
+      "contact the landlord",
+      "landlord and tenant",
+      "pay rent to the landlord"
+    ],
+    "image": "/vocab/landlord.png",
+    "pronunciation": "/landlord/",
+    "fallbackStructure": "Landlord"
+  },
+  {
+    "id": "maintenance",
+    "number": 21,
+    "level": "L2",
+    "word": "maintenance",
+    "chinese": "报修/维护",
+    "collocations": [
+      "maintenance worker",
+      "call maintenance",
+      "building maintenance"
+    ],
+    "image": "/vocab/maintenance.png",
+    "pronunciation": "/maintenance/",
+    "fallbackStructure": "Maintenance"
+  },
+  {
+    "id": "drain",
+    "number": 22,
+    "level": "L2",
+    "word": "drain",
+    "chinese": "下水道/排水口",
+    "collocations": [
+      "clogged drain",
+      "water goes down the drain",
+      "clear the drain"
+    ],
+    "image": "/vocab/drain.png",
+    "pronunciation": "/drain/",
+    "fallbackStructure": "Drain"
+  },
+  {
+    "id": "faucet",
+    "number": 23,
+    "level": "L2",
+    "word": "faucet",
+    "chinese": "水龙头",
+    "collocations": [
+      "leaking faucet",
+      "turn on/off the faucet",
+      "kitchen faucet"
+    ],
+    "image": "/vocab/faucet.png",
+    "pronunciation": "/faucet/",
+    "fallbackStructure": "Faucet"
+  },
+  {
+    "id": "napkin",
+    "number": 24,
+    "level": "L2",
+    "word": "napkin",
+    "chinese": "餐巾纸",
+    "collocations": [
+      "paper napkin",
+      "cloth napkin",
+      "wipe hands with a napkin"
+    ],
+    "image": "/vocab/napkin.png",
+    "pronunciation": "/napkin/",
+    "fallbackStructure": "Napkin"
+  },
+  {
+    "id": "souvenir",
+    "number": 25,
+    "level": "L2",
+    "word": "souvenir",
+    "chinese": "纪念品",
+    "collocations": [
+      "souvenir shop",
+      "buy a souvenir",
+      "keep as a souvenir"
+    ],
+    "image": "/vocab/souvenir.png",
+    "pronunciation": "/souvenir/",
+    "fallbackStructure": "Souvenir"
+  },
+  {
+    "id": "auditorium",
+    "number": 26,
+    "level": "L2",
+    "word": "auditorium",
+    "chinese": "大礼堂",
+    "collocations": [
+      "campus auditorium",
+      "gather in the auditorium",
+      "main auditorium"
+    ],
+    "image": "/vocab/auditorium.png",
+    "pronunciation": "/auditorium/",
+    "fallbackStructure": "Auditorium"
+  },
+  {
+    "id": "prerequisite",
+    "number": 27,
+    "level": "L2",
+    "word": "prerequisite",
+    "chinese": "先修课程/前提条件",
+    "collocations": [
+      "prerequisite course",
+      "meet the prerequisite",
+      "course prerequisite"
+    ],
+    "image": "/vocab/prerequisite.png",
+    "pronunciation": "/prerequisite/",
+    "fallbackStructure": "Prerequisite"
+  },
+  {
+    "id": "tuition",
+    "number": 28,
+    "level": "L2",
+    "word": "tuition",
+    "chinese": "学费",
+    "collocations": [
+      "pay tuition fees",
+      "college tuition",
+      "tuition increase"
+    ],
+    "image": "/vocab/tuition.png",
+    "pronunciation": "/tuition/",
+    "fallbackStructure": "Tuition"
+  },
+  {
+    "id": "scholarship",
+    "number": 29,
+    "level": "L2",
+    "word": "scholarship",
+    "chinese": "奖学金",
+    "collocations": [
+      "apply for a scholarship",
+      "full scholarship",
+      "win a scholarship"
+    ],
+    "image": "/vocab/scholarship.png",
+    "pronunciation": "/scholarship/",
+    "fallbackStructure": "Scholarship"
+  },
+  {
+    "id": "adviser",
+    "number": 30,
+    "level": "L2",
+    "word": "adviser",
+    "chinese": "学业导师",
+    "collocations": [
+      "academic adviser",
+      "consult with an adviser",
+      "meet my adviser"
+    ],
+    "image": "/vocab/adviser.png",
+    "pronunciation": "/adviser/",
+    "fallbackStructure": "Adviser"
+  },
+  {
+    "id": "extension",
+    "number": 31,
+    "level": "L2",
+    "word": "extension",
+    "chinese": "延期许可",
+    "collocations": [
+      "request an extension",
+      "deadline extension",
+      "grant an extension"
+    ],
+    "image": "/vocab/extension.png",
+    "pronunciation": "/extension/",
+    "fallbackStructure": "Extension"
+  },
+  {
+    "id": "workload",
+    "number": 32,
+    "level": "L2",
+    "word": "workload",
+    "chinese": "课业负担",
+    "collocations": [
+      "heavy workload",
+      "manage my workload",
+      "reduce the workload"
+    ],
+    "image": "/vocab/workload.png",
+    "pronunciation": "/workload/",
+    "fallbackStructure": "Workload"
+  },
+  {
+    "id": "beverage",
+    "number": 33,
+    "level": "L2",
+    "word": "beverage",
+    "chinese": "饮料",
+    "collocations": [
+      "hot/cold beverage",
+      "beverage option",
+      "complimentary beverage"
+    ],
+    "image": "/vocab/beverage.png",
+    "pronunciation": "/beverage/",
+    "fallbackStructure": "Beverage"
+  },
+  {
+    "id": "venue",
+    "number": 34,
+    "level": "L2",
+    "word": "venue",
+    "chinese": "活动场地",
+    "collocations": [
+      "event venue",
+      "book a venue",
+      "suitable venue"
+    ],
+    "image": "/vocab/venue.png",
+    "pronunciation": "/venue/",
+    "fallbackStructure": "Venue"
+  },
+  {
+    "id": "committee",
+    "number": 35,
+    "level": "L2",
+    "word": "committee",
+    "chinese": "委员会",
+    "collocations": [
+      "student committee",
+      "join a committee",
+      "committee member"
+    ],
+    "image": "/vocab/committee.png",
+    "pronunciation": "/committee/",
+    "fallbackStructure": "Committee"
+  },
+  {
+    "id": "cardio",
+    "number": 36,
+    "level": "L2",
+    "word": "cardio",
+    "chinese": "有氧运动",
+    "collocations": [
+      "do cardio",
+      "cardio workout",
+      "cardio exercise"
+    ],
+    "image": "/vocab/cardio.png",
+    "pronunciation": "/cardio/",
+    "fallbackStructure": "Cardio"
+  },
+  {
+    "id": "kettlebell",
+    "number": 37,
+    "level": "L3",
+    "word": "kettlebell",
+    "chinese": "壶铃",
+    "collocations": [
+      "kettlebell swing",
+      "heavy kettlebell",
+      "train with a kettlebell"
+    ],
+    "image": "/vocab/kettlebell.png",
+    "pronunciation": "/kettlebell/",
+    "fallbackStructure": "Kettlebell"
+  },
+  {
+    "id": "cutlery",
+    "number": 38,
+    "level": "L3",
+    "word": "cutlery",
+    "chinese": "餐具(刀叉匙)",
+    "collocations": [
+      "silver cutlery",
+      "set the cutlery",
+      "stainless steel cutlery"
+    ],
+    "image": "/vocab/cutlery.png",
+    "pronunciation": "/cutlery/",
+    "fallbackStructure": "Cutlery"
+  },
+  {
+    "id": "countertop",
+    "number": 39,
+    "level": "L3",
+    "word": "countertop",
+    "chinese": "厨房台面",
+    "collocations": [
+      "kitchen countertop",
+      "wipe the countertop",
+      "marble countertop"
+    ],
+    "image": "/vocab/countertop.png",
+    "pronunciation": "/countertop/",
+    "fallbackStructure": "Countertop"
+  },
+  {
+    "id": "detergent",
+    "number": 40,
+    "level": "L3",
+    "word": "detergent",
+    "chinese": "清洁剂/洗衣液",
+    "collocations": [
+      "laundry detergent",
+      "pour detergent",
+      "eco-friendly detergent"
+    ],
+    "image": "/vocab/detergent.png",
+    "pronunciation": "/detergent/",
+    "fallbackStructure": "Detergent"
+  },
+  {
+    "id": "pantry",
+    "number": 41,
+    "level": "L3",
+    "word": "pantry",
+    "chinese": "食品储存间",
+    "collocations": [
+      "kitchen pantry",
+      "stock the pantry",
+      "pantry shelf"
+    ],
+    "image": "/vocab/pantry.png",
+    "pronunciation": "/pantry/",
+    "fallbackStructure": "Pantry"
+  },
+  {
+    "id": "wardrobe",
+    "number": 42,
+    "level": "L3",
+    "word": "wardrobe",
+    "chinese": "衣柜",
+    "collocations": [
+      "wardrobe space",
+      "organize my wardrobe",
+      "wooden wardrobe"
+    ],
+    "image": "/vocab/wardrobe.png",
+    "pronunciation": "/wardrobe/",
+    "fallbackStructure": "Wardrobe"
+  },
+  {
+    "id": "patron",
+    "number": 43,
+    "level": "L3",
+    "word": "patron",
+    "chinese": "顾客/赞助人",
+    "collocations": [
+      "library patron",
+      "regular patron",
+      "patron of arts"
+    ],
+    "image": "/vocab/patron.png",
+    "pronunciation": "/patron/",
+    "fallbackStructure": "Patron"
+  },
+  {
+    "id": "observatory",
+    "number": 44,
+    "level": "L3",
+    "word": "observatory",
+    "chinese": "天文台",
+    "collocations": [
+      "astronomical observatory",
+      "visit an observatory",
+      "observatory deck"
+    ],
+    "image": "/vocab/observatory.png",
+    "pronunciation": "/observatory/",
+    "fallbackStructure": "Observatory"
+  },
+  {
+    "id": "pastry",
+    "number": 45,
+    "level": "L3",
+    "word": "pastry",
+    "chinese": "糕点/面点",
+    "collocations": [
+      "fresh pastry",
+      "pastry shop",
+      "french pastry"
+    ],
+    "image": "/vocab/pastry.png",
+    "pronunciation": "/pastry/",
+    "fallbackStructure": "Pastry"
+  },
+  {
+    "id": "pedestrian",
+    "number": 46,
+    "level": "L3",
+    "word": "pedestrian",
+    "chinese": "行人",
+    "collocations": [
+      "pedestrian crossing",
+      "pedestrian lane",
+      "yield to pedestrians"
+    ],
+    "image": "/vocab/pedestrian.png",
+    "pronunciation": "/pedestrian/",
+    "fallbackStructure": "Pedestrian"
+  },
+  {
+    "id": "intersection",
+    "number": 47,
+    "level": "L3",
+    "word": "intersection",
+    "chinese": "十字路口",
+    "collocations": [
+      "busy intersection",
+      "street intersection",
+      "cross the intersection"
+    ],
+    "image": "/vocab/intersection.png",
+    "pronunciation": "/intersection/",
+    "fallbackStructure": "Intersection"
+  },
+  {
+    "id": "commute",
+    "number": 48,
+    "level": "L3",
+    "word": "commute",
+    "chinese": "通勤过程",
+    "collocations": [
+      "commuting time",
+      "daily commute",
+      "long commute"
+    ],
+    "image": "/vocab/commute.png",
+    "pronunciation": "/commute/",
+    "fallbackStructure": "Commute"
+  },
+  {
+    "id": "deduction",
+    "number": 49,
+    "level": "L3",
+    "word": "deduction",
+    "chinese": "扣分",
+    "collocations": [
+      "grade deduction",
+      "cause a deduction",
+      "points deduction"
+    ],
+    "image": "/vocab/deduction.png",
+    "pronunciation": "/deduction/",
+    "fallbackStructure": "Deduction"
+  },
+  {
+    "id": "discipline",
+    "number": 50,
+    "level": "L3",
+    "word": "discipline",
+    "chinese": "学科/纪律",
+    "collocations": [
+      "academic discipline",
+      "strict discipline",
+      "self-discipline"
+    ],
+    "image": "/vocab/discipline.png",
+    "pronunciation": "/discipline/",
+    "fallbackStructure": "Discipline"
+  },
+  {
+    "id": "plagiarism",
+    "number": 51,
+    "level": "L3",
+    "word": "plagiarism",
+    "chinese": "抄袭",
+    "collocations": [
+      "academic plagiarism",
+      "avoid plagiarism",
+      "plagiarism checker"
+    ],
+    "image": "/vocab/plagiarism.png",
+    "pronunciation": "/plagiarism/",
+    "fallbackStructure": "Plagiarism"
+  },
+  {
+    "id": "pharmacy",
+    "number": 52,
+    "level": "L3",
+    "word": "pharmacy",
+    "chinese": "药房/药店",
+    "collocations": [
+      "campus pharmacy",
+      "local pharmacy",
+      "pharmacy prescription"
+    ],
+    "image": "/vocab/pharmacy.png",
+    "pronunciation": "/pharmacy/",
+    "fallbackStructure": "Pharmacy"
+  },
+  {
+    "id": "alumni",
+    "number": 53,
+    "level": "L3",
+    "word": "alumni",
+    "chinese": "校友(复数)",
+    "collocations": [
+      "alumni association",
+      "alumni network",
+      "connect with alumni"
+    ],
+    "image": "/vocab/alumni.png",
+    "pronunciation": "/alumni/",
+    "fallbackStructure": "Alumni"
+  },
+  {
+    "id": "kiosk",
+    "number": 54,
+    "level": "L3",
+    "word": "kiosk",
+    "chinese": "资讯亭/小卖亭",
+    "collocations": [
+      "information kiosk",
+      "news kiosk",
+      "interactive kiosk"
+    ],
+    "image": "/vocab/kiosk.png",
+    "pronunciation": "/kiosk/",
+    "fallbackStructure": "Kiosk"
+  }
+]

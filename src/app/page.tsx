@@ -28,7 +28,7 @@ type SpeechRecognitionLike = {
 };
 
 const CACHE_PREFIX = "vocabulary-builder.evaluation.";
-const ILLUSTRATION_REQUEST_TIMEOUT_MS = 180000;
+const ILLUSTRATION_REQUEST_TIMEOUT_MS = 195000;
 const LEVEL_MAP: Record<LearnerLevel, Level[]> = { starter: ["L1"], developing: ["L1", "L2"], stretch: ["L2", "L3"], mixed: ["L1", "L2", "L3"] };
 const FOCUS_WORD_IDS: Record<WordFocus, string[]> = {
   everyday: ["dumbbell", "treadmill", "kettle", "locker", "mat", "drawer", "shelf", "outlet", "bulb", "wardrobe", "pantry", "faucet", "countertop", "detergent", "cutlery", "napkin", "pastry", "beverage", "wallet", "receipt"],
@@ -386,23 +386,22 @@ export default function Home() {
 
   const generateIllustration = async (wordId: string) => {
     const target = customWords.find((item) => item.id === wordId);
-    if (!target || generatingWordId) return;
+    if (!target || generatingWordId || illustrationBatch) return;
     setGeneratingWordId(wordId);
     setStudioNotice(`Drawing ${target.word}… This can take up to three minutes.`);
     try {
       const response = await fetch("/api/generate-illustration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ word: target.word, translation: target.chinese }), signal: AbortSignal.timeout(ILLUSTRATION_REQUEST_TIMEOUT_MS) });
       const payload = await response.json() as { image?: string; source?: string; message?: string };
-      if (!response.ok || !payload.image) throw new Error("No illustration returned");
-      const updated = payload.source === "ai"
-        ? { ...target, image: payload.image, illustrationVersion: ILLUSTRATION_STYLE_VERSION }
-        : { ...target, image: PENDING_WORD_IMAGE, illustrationVersion: undefined };
+      if (!response.ok || payload.source !== "ai" || !payload.image) throw new Error(payload.message || "No illustration returned");
+      const updated = { ...target, image: payload.image, illustrationVersion: ILLUSTRATION_STYLE_VERSION };
       registerVocabularyWords([updated]);
       setCustomWords((current) => current.map((item) => item.id === wordId ? updated : item));
-      setStudioNotice(payload.message || `${target.word} is illustrated and ready for your next round.`);
+      setClassFolders((current) => current.map((folder) => ({ ...folder, words: folder.words.map((item) => item.id === wordId ? { ...item, image: updated.image, illustrationVersion: ILLUSTRATION_STYLE_VERSION } : item) })));
+      setStudioNotice(`${target.word} is illustrated and ready for your next round.`);
     } catch (error) {
       setStudioNotice(error instanceof DOMException && error.name === "TimeoutError"
-        ? "The illustration timed out after three minutes. No other word was used; try again when Agnes is less busy."
-        : "The illustration could not be created. Check the local server and try again.");
+        ? "The illustration timed out. Please try again."
+        : error instanceof Error ? error.message : "The illustration could not be created.");
     } finally { setGeneratingWordId(null); }
   };
 
@@ -411,6 +410,8 @@ export default function Home() {
     const queue = customWords.filter((word) => !isGeneratedIllustration(word.image));
     if (!queue.length) { setStudioNotice("All your words already have illustrations."); return; }
     const failed: string[] = [];
+    let completed = 0;
+    let failureMessage = "";
     setIllustrationBatch({ current: 0, total: queue.length, failed });
     for (let index = 0; index < queue.length; index += 1) {
       const word = queue[index];
@@ -424,13 +425,18 @@ export default function Home() {
         const updated = { ...word, image: payload.image, illustrationVersion: ILLUSTRATION_STYLE_VERSION };
         registerVocabularyWords([updated]);
         setCustomWords((current) => current.map((item) => item.id === word.id ? updated : item));
-      } catch {
+        setClassFolders((current) => current.map((folder) => ({ ...folder, words: folder.words.map((item) => item.id === word.id ? { ...item, image: updated.image, illustrationVersion: ILLUSTRATION_STYLE_VERSION } : item) })));
+        completed += 1;
+      } catch (error) {
         failed.push(word.word);
-        setStudioNotice(`${word.word} could not be illustrated. You can retry it below.`);
+        failureMessage = error instanceof Error ? error.message : "The illustration could not be created.";
       } finally { setGeneratingWordId(null); }
+      if (failureMessage) break;
     }
     setIllustrationBatch(null);
-    setStudioNotice(failed.length ? `${queue.length - failed.length} illustrated. Retry: ${failed.join(", ")}.` : `${queue.length} illustrations are ready for your next round.`);
+    setStudioNotice(failureMessage
+      ? `${completed} illustrated. Stopped at ${failed[0]}; ${queue.length - completed - 1} left unattempted. ${failureMessage}`
+      : `${completed} illustrations are ready for your next round.`);
   };
 
   const deleteCustomWord = (wordId: string) => {
@@ -897,7 +903,7 @@ type IllustrationStudioProps = {
 
 function IllustrationStudio({ customWords, studioDraft, setStudioDraft, studioNotice, importInputRef, onImport, onImportFile, onGenerate, onGenerateBatch, onDelete, generatingWordId, illustrationBatch }: IllustrationStudioProps) {
   return <section className="panel illustration-studio">
-    <div className="studio-heading"><div><div className="eyebrow">Teacher word studio · 词汇插画工作室</div><h2>Bring your own vocabulary to life</h2><p className="subtle">Add your words, then make the whole set ready in one pass. Your set stays on this device.</p><p className="studio-warning">There may be a problem with image generation, sorry. It will be fixed within 1 day.</p></div><div className="studio-count-wrap"><span className="studio-count">{customWords.length}<small>your words</small></span><button className="btn btn-primary batch-button" disabled={!customWords.some((word) => !isGeneratedIllustration(word.image)) || illustrationBatch !== null} onClick={onGenerateBatch}>{illustrationBatch ? `Drawing ${illustrationBatch.current} of ${illustrationBatch.total}` : "Generate all missing art"}</button></div></div>
+    <div className="studio-heading"><div><div className="eyebrow">Teacher word studio · 词汇插画工作室</div><h2>Bring your own vocabulary to life</h2><p className="subtle">Add your words, then make the whole set ready in one pass. Your set stays on this device.</p></div><div className="studio-count-wrap"><span className="studio-count">{customWords.length}<small>your words</small></span><button className="btn btn-primary batch-button" disabled={!customWords.some((word) => !isGeneratedIllustration(word.image)) || illustrationBatch !== null || generatingWordId !== null} onClick={onGenerateBatch}>{illustrationBatch ? `Drawing ${illustrationBatch.current} of ${illustrationBatch.total}` : "Generate all missing art"}</button></div></div>
     <div className="studio-grid">
       <div className="import-column">
         <div className="studio-label">1 · Add your words</div>
@@ -905,7 +911,7 @@ function IllustrationStudio({ customWords, studioDraft, setStudioDraft, studioNo
         <div className="paste-row"><textarea className="studio-textarea" value={studioDraft} onChange={(event) => setStudioDraft(event.target.value)} placeholder={"Or paste words here…\ncompass, direction finder, L1\ncurious, interested in learning, L2"} /><button className="btn btn-primary" disabled={!studioDraft.trim()} onClick={() => onImport(studioDraft)}>Add words</button></div>
         {studioNotice && <div className="studio-notice" role="status">{studioNotice}</div>}
         <div className="studio-label studio-label-spaced">Your imported set {customWords.length > 0 && <span>{customWords.filter((word) => isGeneratedIllustration(word.image)).length}/{customWords.length} illustrated</span>}</div>
-        {customWords.length ? <div className="custom-word-list">{customWords.map((word) => { const isGenerated = isGeneratedIllustration(word.image); const active = generatingWordId === word.id; return <div className={`custom-word-row ${active ? "is-drawing" : ""}`} key={word.id}><img src={word.image || PENDING_WORD_IMAGE} alt=""/><div className="custom-word-copy"><b>{word.word}</b><small>{word.chinese || "No meaning provided"} · {word.level}</small></div><span className={`art-status ${isGenerated ? "ready" : "waiting"}`}>{active ? "Drawing…" : isGenerated ? "Illustrated" : "Needs art"}</span><button className="btn btn-mint art-button" disabled={generatingWordId !== null} onClick={() => onGenerate(word.id)}>{active ? "Drawing…" : isGenerated ? "Redraw" : "Generate art"}</button><button className="delete-word" aria-label={`Delete ${word.word}`} disabled={generatingWordId !== null} onClick={() => onDelete(word.id)}>Delete</button></div>; })}</div> : <div className="studio-empty"><span>✎</span><div><b>Start by adding your words.</b><small>Use CSV, TXT, or JSON, or paste one word per line. Then generate the missing art for the set.</small></div></div>}
+        {customWords.length ? <div className="custom-word-list">{customWords.map((word) => { const isGenerated = isGeneratedIllustration(word.image); const active = generatingWordId === word.id; return <div className={`custom-word-row ${active ? "is-drawing" : ""}`} key={word.id}><img src={word.image || PENDING_WORD_IMAGE} alt=""/><div className="custom-word-copy"><b>{word.word}</b><small>{word.chinese || "No meaning provided"} · {word.level}</small></div><span className={`art-status ${isGenerated ? "ready" : "waiting"}`}>{active ? "Drawing…" : isGenerated ? "Illustrated" : "Needs art"}</span><button className="btn btn-mint art-button" disabled={generatingWordId !== null || illustrationBatch !== null} onClick={() => onGenerate(word.id)}>{active ? "Drawing…" : isGenerated ? "Redraw" : "Generate art"}</button><button className="delete-word" aria-label={`Delete ${word.word}`} disabled={generatingWordId !== null || illustrationBatch !== null} onClick={() => onDelete(word.id)}>Delete</button></div>; })}</div> : <div className="studio-empty"><span>✎</span><div><b>Start by adding your words.</b><small>Use CSV, TXT, or JSON, or paste one word per line. Then generate the missing art for the set.</small></div></div>}
       </div>
     </div>
   </section>;

@@ -122,7 +122,11 @@ function normalizeWord(value: unknown, index: number): VocabularyWord | null {
   const chinese = cleanText(raw.chinese, 120);
   const collocations = Array.isArray(raw.collocations) ? raw.collocations.filter((item): item is string => typeof item === "string").map((item) => cleanText(item, 120)).filter(Boolean).slice(0, 3) : [];
   while (collocations.length < 3) collocations.push(collocations.length === 0 ? word : collocations.length === 1 ? `use ${word}` : `learn ${word}`);
-  const rawImage = typeof raw.image === "string" ? raw.image.slice(0, 600_000) : "";
+  // A generated 1024px PNG can exceed 600 KB as a data URI. Truncating it
+  // silently corrupts artwork when a class folder is saved or imported.
+  const rawImage = typeof raw.image === "string" && raw.image.length <= 10_000_000
+    ? raw.image
+    : PENDING_WORD_IMAGE;
   const storedIllustrationVersion = typeof raw.illustrationVersion === "number" ? raw.illustrationVersion : undefined;
   const needsRedraw = isGeneratedIllustration(rawImage) && storedIllustrationVersion !== ILLUSTRATION_STYLE_VERSION;
   const image = needsRedraw ? PENDING_WORD_IMAGE : rawImage;
