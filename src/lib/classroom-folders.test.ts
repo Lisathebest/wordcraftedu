@@ -30,4 +30,10 @@ describe("class folders", () => {
     const second = makeClassFolder("Grade 8", [compass], 2, [first.id])!;
     expect(removeClassFolder([first, second], first.id)).toEqual([second]);
   });
+
+  it("marks older generated folder art for a redraw after a prompt version bump", () => {
+    const folders = normalizeClassFolders([{ id: "class-grade-7", name: "Grade 7", words: [{ ...compass, image: "https://images.example/old.png", illustrationVersion: 2 }] }]);
+    expect(folders[0].words[0].image).toBe("/illustration-studio/pending-word.svg");
+    expect(folders[0].words[0].illustrationVersion).toBeUndefined();
+  });
 });

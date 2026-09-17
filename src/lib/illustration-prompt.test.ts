@@ -10,6 +10,8 @@ describe("illustration prompt", () => {
     expect(prompt).toContain("zero words, letters, numbers");
     expect(prompt).toContain("no visible card, flashcard, poster, paper sheet");
     expect(prompt).toContain("never replace it with an unrelated animal");
+    expect(prompt).toContain("do not add animal anatomy");
+    expect(prompt).toContain("meaning outranks the cute style");
     expect(prompt).not.toContain("Create a single vocabulary flashcard illustration");
   });
 

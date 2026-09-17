@@ -28,6 +28,7 @@ type SpeechRecognitionLike = {
 };
 
 const CACHE_PREFIX = "vocabulary-builder.evaluation.";
+const ILLUSTRATION_REQUEST_TIMEOUT_MS = 180000;
 const LEVEL_MAP: Record<LearnerLevel, Level[]> = { starter: ["L1"], developing: ["L1", "L2"], stretch: ["L2", "L3"], mixed: ["L1", "L2", "L3"] };
 const FOCUS_WORD_IDS: Record<WordFocus, string[]> = {
   everyday: ["dumbbell", "treadmill", "kettle", "locker", "mat", "drawer", "shelf", "outlet", "bulb", "wardrobe", "pantry", "faucet", "countertop", "detergent", "cutlery", "napkin", "pastry", "beverage", "wallet", "receipt"],
@@ -387,9 +388,9 @@ export default function Home() {
     const target = customWords.find((item) => item.id === wordId);
     if (!target || generatingWordId) return;
     setGeneratingWordId(wordId);
-    setStudioNotice(`Drawing ${target.word}… This can take up to two minutes.`);
+    setStudioNotice(`Drawing ${target.word}… This can take up to three minutes.`);
     try {
-      const response = await fetch("/api/generate-illustration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ word: target.word, translation: target.chinese }), signal: AbortSignal.timeout(120000) });
+      const response = await fetch("/api/generate-illustration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ word: target.word, translation: target.chinese }), signal: AbortSignal.timeout(ILLUSTRATION_REQUEST_TIMEOUT_MS) });
       const payload = await response.json() as { image?: string; source?: string; message?: string };
       if (!response.ok || !payload.image) throw new Error("No illustration returned");
       const updated = payload.source === "ai"
@@ -400,7 +401,7 @@ export default function Home() {
       setStudioNotice(payload.message || `${target.word} is illustrated and ready for your next round.`);
     } catch (error) {
       setStudioNotice(error instanceof DOMException && error.name === "TimeoutError"
-        ? "The illustration timed out after two minutes. No other word was used; try again when Agnes is less busy."
+        ? "The illustration timed out after three minutes. No other word was used; try again when Agnes is less busy."
         : "The illustration could not be created. Check the local server and try again.");
     } finally { setGeneratingWordId(null); }
   };
@@ -417,7 +418,7 @@ export default function Home() {
       setGeneratingWordId(word.id);
       setStudioNotice(`Drawing ${word.word} · ${index + 1} of ${queue.length}…`);
       try {
-        const response = await fetch("/api/generate-illustration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ word: word.word, translation: word.chinese }), signal: AbortSignal.timeout(120000) });
+        const response = await fetch("/api/generate-illustration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ word: word.word, translation: word.chinese }), signal: AbortSignal.timeout(ILLUSTRATION_REQUEST_TIMEOUT_MS) });
         const payload = await response.json() as { image?: string; source?: string; message?: string };
         if (!response.ok || !payload.image || payload.source !== "ai") throw new Error(payload.message || "No illustration returned");
         const updated = { ...word, image: payload.image, illustrationVersion: ILLUSTRATION_STYLE_VERSION };

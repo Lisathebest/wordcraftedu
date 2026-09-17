@@ -1,5 +1,7 @@
 export const PENDING_WORD_IMAGE = "/illustration-studio/pending-word.svg";
-export const ILLUSTRATION_STYLE_VERSION = 2;
+// Bump this whenever the house prompt changes so cached illustrations are
+// redrawn instead of silently keeping an older, semantically unreliable image.
+export const ILLUSTRATION_STYLE_VERSION = 3;
 
 /** True only for an illustration created by the studio, not a vocabulary placeholder. */
 export function isGeneratedIllustration(image: string) {
