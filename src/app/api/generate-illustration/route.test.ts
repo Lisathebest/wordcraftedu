@@ -37,5 +37,6 @@ describe("illustration generation route", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("unavailable", { status: 503 })));
     const result = await (await POST(request())).json();
     expect(result).toMatchObject({ source: "fallback", image: "/illustration-studio/pending-word.svg" });
+    expect(result.message).toContain("HTTP 503");
   });
 });
