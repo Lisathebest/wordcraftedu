@@ -39,4 +39,30 @@ describe("illustration generation route", () => {
     expect(result).toMatchObject({ source: "fallback", image: "/illustration-studio/pending-word.svg" });
     expect(result.message).toContain("HTTP 503");
   });
+
+  it("does not retry a rejected key and surfaces the provider message", async () => {
+    vi.stubEnv("SWY_IMAGE_API_KEY", "stale-key");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: "invalid api key" } }), { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await (await POST(request())).json();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ source: "fallback", image: "/illustration-studio/pending-word.svg" });
+    expect(result.message).toContain("HTTP 401");
+    expect(result.message).toContain("invalid api key");
+  });
+
+  it("retries transient provider failures before succeeding", async () => {
+    vi.stubEnv("SWY_IMAGE_API_KEY", "test-key");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ b64_json: "aGVsbG8=" }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await (await POST(request())).json();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ image: "data:image/png;base64,aGVsbG8=", source: "ai" });
+  });
 });
