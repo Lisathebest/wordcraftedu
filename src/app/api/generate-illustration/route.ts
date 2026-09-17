@@ -8,8 +8,8 @@ const fallbackImage = PENDING_WORD_IMAGE;
 
 type ImageResult = { b64_json?: string | null; url?: string | null };
 type ImagePayload = { data?: ImageResult[] };
-const DEFAULT_AGNES_IMAGE_MODEL = "agnes-image-2.0-flash";
-const DEFAULT_AGNES_IMAGE_FALLBACK_MODEL = "agnes-image-2.1-flash";
+const IMAGE_API_BASE_URL = "https://aiapi.swy168.com/v1";
+const IMAGE_MODEL = "gpt-image-2";
 const IMAGE_REQUEST_TIMEOUT_MS = 180000;
 
 function cleanWord(value: unknown) {
@@ -27,38 +27,18 @@ function imageFromPayload(payload: ImagePayload) {
   throw new Error("Image generation returned no image");
 }
 
-async function generateWithAgnes(word: string, translation: string, apiKey: string, model: string) {
-  const baseUrl = (process.env.AGNES_BASE_URL || "https://apihub.agnes-ai.com/v1").replace(/\/+$/, "");
-  const responseFormat = process.env.AGNES_IMAGE_RESPONSE_FORMAT === "b64_json" ? "b64_json" : "url";
-  const response = await fetch(`${baseUrl}/images/generations`, {
+async function generateImage(word: string, translation: string, apiKey: string) {
+  const response = await fetch(`${IMAGE_API_BASE_URL}/images/generations`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model,
+      model: IMAGE_MODEL,
       prompt: buildIllustrationPrompt(word, translation),
       size: "1024x1024",
-      ...(responseFormat === "b64_json" ? { return_base64: true } : {}),
-      extra_body: { response_format: responseFormat },
     }),
     signal: AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
   });
-  if (!response.ok) throw new Error(`Agnes image generation failed (${response.status})`);
-  return imageFromPayload(await response.json() as ImagePayload);
-}
-
-async function generateWithOpenAi(word: string, translation: string, apiKey: string) {
-  const response = await fetch("https://api.openai.com/v1/images/generations", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: process.env.OPENAI_IMAGE_MODEL || "gpt-image-2",
-      size: "1024x1024",
-      quality: "medium",
-      prompt: buildIllustrationPrompt(word, translation),
-    }),
-    signal: AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`OpenAI image generation failed (${response.status})`);
+  if (!response.ok) throw new Error(`Image generation failed (${response.status})`);
   return imageFromPayload(await response.json() as ImagePayload);
 }
 
@@ -70,36 +50,14 @@ export async function POST(request: Request) {
   const translation = cleanTranslation(input.translation);
   if (!word) return NextResponse.json({ error: "A vocabulary word is required." }, { status: 400 });
 
-  // Agnes is preferred when configured. OpenAI remains a compatible fallback for
-  // deployments that already have an OpenAI image key.
-  const agnesApiKey = process.env.AGNES_API_KEY?.trim();
-  const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!agnesApiKey && !openAiApiKey) {
-    return NextResponse.json({ image: fallbackImage, source: "demo", message: "No image provider is configured. Add AGNES_API_KEY to generate this word's illustration." });
+  const apiKey = process.env.SWY_IMAGE_API_KEY?.trim();
+  if (!apiKey) {
+    return NextResponse.json({ image: fallbackImage, source: "demo", message: "No image provider is configured. Add SWY_IMAGE_API_KEY to generate this word's illustration." });
   }
 
   try {
-    if (agnesApiKey) {
-      const configuredModel = process.env.AGNES_IMAGE_MODEL?.trim() || DEFAULT_AGNES_IMAGE_MODEL;
-      const fallbackModel = process.env.AGNES_IMAGE_FALLBACK_MODEL?.trim() || DEFAULT_AGNES_IMAGE_FALLBACK_MODEL;
-      const models = [...new Set([configuredModel, fallbackModel].filter(Boolean))];
-      let lastError: unknown;
-      for (const model of models) {
-        try {
-          const image = await generateWithAgnes(word, translation, agnesApiKey, model);
-          return NextResponse.json({ image, source: "ai", provider: "agnes", model });
-        } catch (error) {
-          lastError = error;
-          console.warn("Agnes illustration model failed", { model, error: error instanceof Error ? error.message : "Unknown error" });
-        }
-      }
-      throw lastError instanceof Error ? lastError : new Error("Agnes image generation failed");
-    }
-    if (openAiApiKey) {
-      const image = await generateWithOpenAi(word, translation, openAiApiKey);
-      return NextResponse.json({ image, source: "ai", provider: "openai" });
-    }
-    throw new Error("No image provider configured");
+    const image = await generateImage(word, translation, apiKey);
+    return NextResponse.json({ image, source: "ai", provider: "swy", model: IMAGE_MODEL });
   } catch {
     return NextResponse.json({ image: fallbackImage, source: "fallback", message: "The generator is unavailable right now. This word was not replaced with another image; check the API key and try again." });
   }
