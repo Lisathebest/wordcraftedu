@@ -1,4 +1,5 @@
 import type { Level, VocabularyWord } from "@/types/game";
+import { ILLUSTRATION_STYLE_VERSION, isGeneratedIllustration, PENDING_WORD_IMAGE } from "@/lib/illustration";
 
 export const CLASS_FOLDER_EXPORT_VERSION = 1;
 const MAX_FOLDER_NAME_LENGTH = 80;
@@ -121,7 +122,10 @@ function normalizeWord(value: unknown, index: number): VocabularyWord | null {
   const chinese = cleanText(raw.chinese, 120);
   const collocations = Array.isArray(raw.collocations) ? raw.collocations.filter((item): item is string => typeof item === "string").map((item) => cleanText(item, 120)).filter(Boolean).slice(0, 3) : [];
   while (collocations.length < 3) collocations.push(collocations.length === 0 ? word : collocations.length === 1 ? `use ${word}` : `learn ${word}`);
-  const image = typeof raw.image === "string" ? raw.image.slice(0, 600_000) : "";
+  const rawImage = typeof raw.image === "string" ? raw.image.slice(0, 600_000) : "";
+  const storedIllustrationVersion = typeof raw.illustrationVersion === "number" ? raw.illustrationVersion : undefined;
+  const needsRedraw = isGeneratedIllustration(rawImage) && storedIllustrationVersion !== ILLUSTRATION_STYLE_VERSION;
+  const image = needsRedraw ? PENDING_WORD_IMAGE : rawImage;
   return {
     id,
     number: finiteTimestamp(raw.number, 1000 + index),
@@ -130,7 +134,7 @@ function normalizeWord(value: unknown, index: number): VocabularyWord | null {
     chinese,
     collocations: collocations as [string, string, string],
     image,
-    ...(typeof raw.illustrationVersion === "number" ? { illustrationVersion: raw.illustrationVersion } : {}),
+    ...(!needsRedraw && storedIllustrationVersion !== undefined ? { illustrationVersion: storedIllustrationVersion } : {}),
     pronunciation: cleanText(raw.pronunciation, 120) || `/${word}/`,
     fallbackStructure: cleanText(raw.fallbackStructure, 120) || word.replace(/^(.)/, (letter) => letter.toUpperCase()),
   };

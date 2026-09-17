@@ -8,6 +8,9 @@ const fallbackImage = PENDING_WORD_IMAGE;
 
 type ImageResult = { b64_json?: string | null; url?: string | null };
 type ImagePayload = { data?: ImageResult[] };
+const DEFAULT_AGNES_IMAGE_MODEL = "agnes-image-2.0-flash";
+const DEFAULT_AGNES_IMAGE_FALLBACK_MODEL = "agnes-image-2.1-flash";
+const IMAGE_REQUEST_TIMEOUT_MS = 180000;
 
 function cleanWord(value: unknown) {
   return typeof value === "string" ? value.trim().replace(/[^a-zA-Z0-9 '\u2019-]/g, "").slice(0, 80) : "";
@@ -24,9 +27,8 @@ function imageFromPayload(payload: ImagePayload) {
   throw new Error("Image generation returned no image");
 }
 
-async function generateWithAgnes(word: string, translation: string, apiKey: string) {
+async function generateWithAgnes(word: string, translation: string, apiKey: string, model: string) {
   const baseUrl = (process.env.AGNES_BASE_URL || "https://apihub.agnes-ai.com/v1").replace(/\/+$/, "");
-  const model = process.env.AGNES_IMAGE_MODEL || "agnes-image-2.0-flash";
   const responseFormat = process.env.AGNES_IMAGE_RESPONSE_FORMAT === "b64_json" ? "b64_json" : "url";
   const response = await fetch(`${baseUrl}/images/generations`, {
     method: "POST",
@@ -38,7 +40,7 @@ async function generateWithAgnes(word: string, translation: string, apiKey: stri
       ...(responseFormat === "b64_json" ? { return_base64: true } : {}),
       extra_body: { response_format: responseFormat },
     }),
-    signal: AbortSignal.timeout(180000),
+    signal: AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`Agnes image generation failed (${response.status})`);
   return imageFromPayload(await response.json() as ImagePayload);
@@ -54,7 +56,7 @@ async function generateWithOpenAi(word: string, translation: string, apiKey: str
       quality: "medium",
       prompt: buildIllustrationPrompt(word, translation),
     }),
-    signal: AbortSignal.timeout(60000),
+    signal: AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`OpenAI image generation failed (${response.status})`);
   return imageFromPayload(await response.json() as ImagePayload);
@@ -78,8 +80,20 @@ export async function POST(request: Request) {
 
   try {
     if (agnesApiKey) {
-      const image = await generateWithAgnes(word, translation, agnesApiKey);
-      return NextResponse.json({ image, source: "ai", provider: "agnes" });
+      const configuredModel = process.env.AGNES_IMAGE_MODEL?.trim() || DEFAULT_AGNES_IMAGE_MODEL;
+      const fallbackModel = process.env.AGNES_IMAGE_FALLBACK_MODEL?.trim() || DEFAULT_AGNES_IMAGE_FALLBACK_MODEL;
+      const models = [...new Set([configuredModel, fallbackModel].filter(Boolean))];
+      let lastError: unknown;
+      for (const model of models) {
+        try {
+          const image = await generateWithAgnes(word, translation, agnesApiKey, model);
+          return NextResponse.json({ image, source: "ai", provider: "agnes", model });
+        } catch (error) {
+          lastError = error;
+          console.warn("Agnes illustration model failed", { model, error: error instanceof Error ? error.message : "Unknown error" });
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error("Agnes image generation failed");
     }
     if (openAiApiKey) {
       const image = await generateWithOpenAi(word, translation, openAiApiKey);

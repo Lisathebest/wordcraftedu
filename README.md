@@ -9,7 +9,7 @@ A local-first vocabulary crafting game for grades 5–9. Combine words in meanin
 
 PocketBay classroom URL: https://wordcraft-classroom.pocketbay.app
 
-No API key is required. Evaluation continues in clearly marked rules-only mode when the optional semantic evaluator is unavailable. For AI sentence evaluation and live illustration generation, set `AGNES_API_KEY` in a server-side `.env.local`; Agnes is used first with `agnes-2.0-flash` for text and `agnes-image-2.0-flash` for images. `DEEPSEEK_API_KEY` and `OPENAI_API_KEY` remain optional fallbacks. Never put keys in client-side code. Run `pnpm test` for the automated test suite and `pnpm build` for a production check.
+No API key is required. Evaluation continues in clearly marked rules-only mode when the optional semantic evaluator is unavailable. For AI sentence evaluation and live illustration generation, set `AGNES_API_KEY` in a server-side `.env.local`; Agnes is used first with `agnes-2.0-flash` for text and `agnes-image-2.0-flash` for images, then tries `agnes-image-2.1-flash` if the first image model fails. `DEEPSEEK_API_KEY` and `OPENAI_API_KEY` remain optional fallbacks. Never put keys in client-side code. Run `pnpm test` for the automated test suite and `pnpm build` for a production check.
 
 The teacher setup includes a word studio: upload CSV/TXT/JSON or paste one word per line, optionally adding a meaning or translation in any language, then generate a friendly pencil-and-dot-eyes illustration. The house style is fixed in a server-side prompt; reference pixels are not sent to the image model, so their objects and labels cannot bleed into a new word. A neutral pencil placeholder is shown until an image is generated, so one word never inherits another word's artwork.
 
