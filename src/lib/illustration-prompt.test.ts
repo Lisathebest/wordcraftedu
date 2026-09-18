@@ -11,7 +11,10 @@ describe("illustration prompt", () => {
     expect(prompt).toContain("no visible card, flashcard, poster, paper sheet");
     expect(prompt).toContain("never replace it with an unrelated animal");
     expect(prompt).toContain("do not add animal anatomy");
-    expect(prompt).toContain("meaning outranks the cute style");
+    expect(prompt).toContain("fixed Wordcraft house style");
+    expect(prompt).toContain("two solid black bean-shaped dot eyes");
+    expect(prompt).toContain("simple cheerful flat color fills");
+    expect(prompt).toContain("Do not make a realistic child");
     expect(prompt).not.toContain("Create a single vocabulary flashcard illustration");
   });
 

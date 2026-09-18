@@ -39,7 +39,7 @@ describe("class folders", () => {
 
   it("preserves a full generated image when a class folder is exported and imported", () => {
     const image = `data:image/png;base64,${"a".repeat(700_000)}`;
-    const folder = makeClassFolder("Art class", [{ ...compass, image, illustrationVersion: 3 }], 1700000000000)!;
+    const folder = makeClassFolder("Art class", [{ ...compass, image, illustrationVersion: 4 }], 1700000000000)!;
     const parsed = parseClassFolderExport(serializeClassFolder(folder), 1700000001000, []);
     expect(parsed?.words[0].image).toBe(image);
   });
