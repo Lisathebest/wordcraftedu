@@ -12,6 +12,7 @@ import type { AbilityId, EvaluationResult, InputMethod, Level, MatchMode, MatchS
 import { RecipeBook } from "./recipe-book";
 
 type Phase = "setup" | "playing" | "finished";
+type SentenceCheckMode = "ai" | "table";
 type LearnerLevel = ClassroomLearnerLevel;
 type WordFocus = ClassroomWordFocus;
 type SpeechResultLike = ArrayLike<{ transcript: string; confidence?: number }> & { isFinal?: boolean };
@@ -29,6 +30,8 @@ type SpeechRecognitionLike = {
 
 const CACHE_PREFIX = "vocabulary-builder.evaluation.";
 const ILLUSTRATION_REQUEST_TIMEOUT_MS = 195000;
+const ILLUSTRATION_BATCH_CONCURRENCY = 3;
+const ILLUSTRATION_ESTIMATE_MS = 60000;
 const LEVEL_MAP: Record<LearnerLevel, Level[]> = { starter: ["L1"], developing: ["L1", "L2"], stretch: ["L2", "L3"], mixed: ["L1", "L2", "L3"] };
 const FOCUS_WORD_IDS: Record<WordFocus, string[]> = {
   everyday: ["dumbbell", "treadmill", "kettle", "locker", "mat", "drawer", "shelf", "outlet", "bulb", "wardrobe", "pantry", "faucet", "countertop", "detergent", "cutlery", "napkin", "pastry", "beverage", "wallet", "receipt"],
@@ -50,6 +53,16 @@ const FOCUS_OPTIONS: { id: WordFocus; label: string }[] = [
   { id: "everyday", label: "Daily life" },
   { id: "travel", label: "Travel" },
 ];
+
+type IllustrationBatchState = {
+  total: number;
+  processed: number;
+  completed: number;
+  failed: string[];
+  active: string[];
+  startedAt: number;
+  estimatedDoneAt: number;
+};
 
 function defaultLessonVocabulary(learnerLevel: LearnerLevel, wordFocus: WordFocus, minimumWords = 8) {
   const allowedLevels = LEVEL_MAP[learnerLevel];
@@ -87,6 +100,31 @@ function newSubmissionId() {
   return `s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function formatBatchRemaining(estimatedDoneAt: number, now: number) {
+  const remainingMs = estimatedDoneAt - now;
+  if (remainingMs <= 30000) return "any moment";
+  const minutes = Math.ceil(remainingMs / 60000);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${hours}h${rest ? ` ${rest}m` : ""}`;
+}
+
+function formatBatchEstimate(total: number) {
+  if (!total) return "—";
+  const concurrency = Math.min(ILLUSTRATION_BATCH_CONCURRENCY, total);
+  const batches = Math.ceil(total / concurrency);
+  const minutes = Math.max(1, Math.ceil((batches * ILLUSTRATION_ESTIMATE_MS) / 60000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${hours}h${rest ? ` ${rest}m` : ""}`;
+}
+
+function formatBatchClock(timestamp: number) {
+  return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(timestamp);
+}
+
 export default function Home() {
   const [phase, setPhase] = useState<Phase>("setup");
   const [mode, setMode] = useState<MatchMode>("solo");
@@ -95,7 +133,8 @@ export default function Home() {
   const [wordFocus, setWordFocus] = useState<WordFocus>("mixed");
   const [durationMinutes, setDurationMinutes] = useState(8);
   const [customWords, setCustomWords] = useState<VocabularyWord[]>([]);
-  const [illustrationBatch, setIllustrationBatch] = useState<{ current: number; total: number; failed: string[] } | null>(null);
+  const [illustrationBatch, setIllustrationBatch] = useState<IllustrationBatchState | null>(null);
+  const [batchReminderArmed, setBatchReminderArmed] = useState(false);
   // Teacher-owned imports stay in `customWords`. Words received through a
   // classroom URL live only in this student-session state so they never leak
   // into the teacher's library or the starter/testing bank on this device.
@@ -127,6 +166,7 @@ export default function Home() {
   const [feedback, setFeedback] = useState<EvaluationResult | null>(null);
   const [feedbackSubmissionId, setFeedbackSubmissionId] = useState<string | null>(null);
   const [pendingReview, setPendingReview] = useState<{ result: EvaluationResult; sentence: string; targets: string[] } | null>(null);
+  const [sentenceCheckMode, setSentenceCheckMode] = useState<SentenceCheckMode>("ai");
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
@@ -138,6 +178,7 @@ export default function Home() {
   const voiceFinalText = useRef("");
   const voiceInterimText = useRef("");
   const voiceRestartTimer = useRef<number | null>(null);
+  const batchReminderArmedRef = useRef(false);
   const sentenceInputRef = useRef<HTMLTextAreaElement | null>(null);
   const definitionHoldTimer = useRef<number | null>(null);
 
@@ -253,6 +294,13 @@ export default function Home() {
   }, [phase]);
 
   useEffect(() => { if (match) saveMatch(match); }, [match]);
+
+  useEffect(() => {
+    if (!illustrationBatch) return;
+    const previousTitle = document.title;
+    document.title = `${illustrationBatch.processed}/${illustrationBatch.total} drawing · Wordcraft`;
+    return () => { document.title = previousTitle; };
+  }, [illustrationBatch]);
 
   useEffect(() => {
     if (match?.status === "finished" && phase === "playing") { saveHistory(match); setPhase("finished"); }
@@ -384,19 +432,57 @@ export default function Home() {
     }
   };
 
+  const fetchIllustration = async (target: VocabularyWord) => {
+    const response = await fetch("/api/generate-illustration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ word: target.word, translation: target.chinese }), signal: AbortSignal.timeout(ILLUSTRATION_REQUEST_TIMEOUT_MS) });
+    const payload = await response.json() as { image?: string; source?: string; message?: string };
+    if (!response.ok || payload.source !== "ai" || !payload.image) throw new Error(payload.message || "No illustration returned");
+    return { ...target, image: payload.image, illustrationVersion: ILLUSTRATION_STYLE_VERSION };
+  };
+
+  const saveIllustration = (updated: VocabularyWord) => {
+    registerVocabularyWords([updated]);
+    setCustomWords((current) => current.map((item) => item.id === updated.id ? updated : item));
+    setClassFolders((current) => current.map((folder) => ({ ...folder, words: folder.words.map((item) => item.id === updated.id ? { ...item, image: updated.image, illustrationVersion: ILLUSTRATION_STYLE_VERSION } : item) })));
+  };
+
+  const requestBatchReminder = async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setStudioNotice("This browser cannot send desktop notifications. Keep this tab open and check the progress card here.");
+      return;
+    }
+    try {
+      const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+      if (permission === "granted") {
+        batchReminderArmedRef.current = true;
+        setBatchReminderArmed(true);
+        setStudioNotice("Reminder on. I’ll notify you when the batch is ready; completed images are saved as they arrive.");
+      } else {
+        setStudioNotice("Notifications are blocked. The progress card will keep showing the estimated finish time.");
+      }
+    } catch {
+      setStudioNotice("Notifications are unavailable here. The progress card will keep showing the estimated finish time.");
+    }
+  };
+
+  const notifyBatchComplete = (completed: number, failed: string[]) => {
+    if (!batchReminderArmedRef.current || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    try {
+      new Notification("Wordcraft illustrations ready", {
+        body: failed.length ? `${completed} ready. ${failed.length} still need attention.` : `${completed} illustrations are ready for your next round.`,
+        icon: "/wordcraft-logo.png",
+      });
+    } catch {
+      // Some browsers allow permission but still block a notification in an embedded tab.
+    }
+  };
+
   const generateIllustration = async (wordId: string) => {
     const target = customWords.find((item) => item.id === wordId);
     if (!target || generatingWordId || illustrationBatch) return;
     setGeneratingWordId(wordId);
-    setStudioNotice(`Drawing ${target.word}… This can take up to three minutes.`);
+    setStudioNotice(`Drawing ${target.word}… This can take up to one minute.`);
     try {
-      const response = await fetch("/api/generate-illustration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ word: target.word, translation: target.chinese }), signal: AbortSignal.timeout(ILLUSTRATION_REQUEST_TIMEOUT_MS) });
-      const payload = await response.json() as { image?: string; source?: string; message?: string };
-      if (!response.ok || payload.source !== "ai" || !payload.image) throw new Error(payload.message || "No illustration returned");
-      const updated = { ...target, image: payload.image, illustrationVersion: ILLUSTRATION_STYLE_VERSION };
-      registerVocabularyWords([updated]);
-      setCustomWords((current) => current.map((item) => item.id === wordId ? updated : item));
-      setClassFolders((current) => current.map((folder) => ({ ...folder, words: folder.words.map((item) => item.id === wordId ? { ...item, image: updated.image, illustrationVersion: ILLUSTRATION_STYLE_VERSION } : item) })));
+      saveIllustration(await fetchIllustration(target));
       setStudioNotice(`${target.word} is illustrated and ready for your next round.`);
     } catch (error) {
       setStudioNotice(error instanceof DOMException && error.name === "TimeoutError"
@@ -409,34 +495,58 @@ export default function Home() {
     if (generatingWordId || illustrationBatch) return;
     const queue = customWords.filter((word) => !isGeneratedIllustration(word.image));
     if (!queue.length) { setStudioNotice("All your words already have illustrations."); return; }
+    batchReminderArmedRef.current = false;
+    setBatchReminderArmed(false);
     const failed: string[] = [];
+    const failureDetails: string[] = [];
+    const active = new Set<string>();
     let completed = 0;
-    let failureMessage = "";
-    setIllustrationBatch({ current: 0, total: queue.length, failed });
-    for (let index = 0; index < queue.length; index += 1) {
-      const word = queue[index];
-      setIllustrationBatch({ current: index + 1, total: queue.length, failed: [...failed] });
-      setGeneratingWordId(word.id);
-      setStudioNotice(`Drawing ${word.word} · ${index + 1} of ${queue.length}…`);
-      try {
-        const response = await fetch("/api/generate-illustration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ word: word.word, translation: word.chinese }), signal: AbortSignal.timeout(ILLUSTRATION_REQUEST_TIMEOUT_MS) });
-        const payload = await response.json() as { image?: string; source?: string; message?: string };
-        if (!response.ok || !payload.image || payload.source !== "ai") throw new Error(payload.message || "No illustration returned");
-        const updated = { ...word, image: payload.image, illustrationVersion: ILLUSTRATION_STYLE_VERSION };
-        registerVocabularyWords([updated]);
-        setCustomWords((current) => current.map((item) => item.id === word.id ? updated : item));
-        setClassFolders((current) => current.map((folder) => ({ ...folder, words: folder.words.map((item) => item.id === word.id ? { ...item, image: updated.image, illustrationVersion: ILLUSTRATION_STYLE_VERSION } : item) })));
-        completed += 1;
-      } catch (error) {
-        failed.push(word.word);
-        failureMessage = error instanceof Error ? error.message : "The illustration could not be created.";
-      } finally { setGeneratingWordId(null); }
-      if (failureMessage) break;
-    }
+    let nextIndex = 0;
+    const startedAt = Date.now();
+    const concurrency = Math.min(ILLUSTRATION_BATCH_CONCURRENCY, queue.length);
+    const updateBatchProgress = () => {
+      const processed = completed + failed.length;
+      const elapsed = Date.now() - startedAt;
+      const averagePerImage = processed ? Math.max(elapsed / processed, 15000) : ILLUSTRATION_ESTIMATE_MS;
+      const remaining = queue.length - processed;
+      const estimatedDoneAt = remaining ? Date.now() + Math.ceil(remaining / concurrency) * averagePerImage : Date.now();
+      setIllustrationBatch({ total: queue.length, processed, completed, failed: [...failed], active: [...active], startedAt, estimatedDoneAt });
+    };
+
+    updateBatchProgress();
+    setStudioNotice(`Batch started: drawing up to ${concurrency} illustrations at once. You can switch tabs while it runs.`);
+
+    const runWorker = async () => {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= queue.length) return;
+        const word = queue[index];
+        active.add(word.id);
+        updateBatchProgress();
+        try {
+          saveIllustration(await fetchIllustration(word));
+          completed += 1;
+        } catch (error) {
+          failed.push(word.word);
+          failureDetails.push(error instanceof Error ? error.message : "The illustration could not be created.");
+        } finally {
+          active.delete(word.id);
+          updateBatchProgress();
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, () => runWorker()));
     setIllustrationBatch(null);
-    setStudioNotice(failureMessage
-      ? `${completed} illustrated. Stopped at ${failed[0]}; ${queue.length - completed - 1} left unattempted. ${failureMessage}`
+    const remaining = queue.length - completed - failed.length;
+    const detail = failureDetails[0] ? ` First issue: ${failureDetails[0]}` : "";
+    setStudioNotice(failed.length
+      ? `${completed} illustrated. ${failed.length} failed${remaining ? `, ${remaining} still waiting` : ""}. Retry the missing art when you are ready.${detail}`
       : `${completed} illustrations are ready for your next round.`);
+    notifyBatchComplete(completed, failed);
+    batchReminderArmedRef.current = false;
+    setBatchReminderArmed(false);
   };
 
   const deleteCustomWord = (wordId: string) => {
@@ -463,7 +573,7 @@ export default function Home() {
       return;
     }
     const next = createMatch(mode, playerNames.length ? playerNames : ["Builder"], randomMatchSeed(), pool, durationMinutes);
-    stopVoice(); setVoiceStatus(null); setMatch(next); setPhase("playing"); setSelected([]); setSentence(""); setFeedback(null); setFeedbackSubmissionId(null); setPendingReview(null); setSelectedBuildingId(null); setSelectedFloor(1); setAbilityTargetId("");
+    stopVoice(); setVoiceStatus(null); setMatch(next); setPhase("playing"); setSelected([]); setSentence(""); setFeedback(null); setFeedbackSubmissionId(null); setPendingReview(null); setSentenceCheckMode("ai"); setSelectedBuildingId(null); setSelectedFloor(1); setAbilityTargetId("");
   };
 
   const finishMatch = () => { if (match) { stopVoice(); const finished = { ...match, status: "finished" as const, remainingSeconds: 0 }; saveHistory(finished); setMatch(finished); setPhase("finished"); } };
@@ -519,6 +629,21 @@ export default function Home() {
       setFeedbackSubmissionId(null);
       setPendingReview({ result, sentence, targets: selected });
     } finally { setIsEvaluating(false); }
+  };
+
+  const approveByTable = () => {
+    if (!match || match.mode !== "local" || !activePlayer || !selected.length || !sentence.trim() || isEvaluating) return;
+    if (isListening) stopVoice();
+    const result: EvaluationResult = {
+      valid: true,
+      confidence: 1,
+      reason: "Your tablemates approved this sentence. Nice work!",
+      correctedSentence: sentence,
+      relationshipSummary: "The group agreed that the selected words work together.",
+      source: "rules",
+      provisional: false,
+    };
+    commitResult(result, sentence, selected);
   };
 
   const countPendingPractice = () => { if (!pendingReview) return; commitResult({ ...pendingReview.result, valid: true, reason: `${pendingReview.result.reason} Counted as practice while the evaluator is unsure.` }, pendingReview.sentence, pendingReview.targets); };
@@ -652,7 +777,7 @@ export default function Home() {
     startAttempt();
   };
 
-  if (phase === "setup") return <Setup mode={mode} setMode={selectMode} names={names} setNames={setNames} learnerLevel={learnerLevel} setLearnerLevel={setLearnerLevel} wordFocus={wordFocus} setWordFocus={setWordFocus} durationMinutes={durationMinutes} setDurationMinutes={setDurationMinutes} startMatch={startMatch} studentLink={studentLink} setStudentLink={(value) => { setStudentLink(value); setStudentJoined(false); setStudentJoinNotice(null); }} studentJoined={studentJoined} studentJoinNotice={studentJoinNotice} onJoinTeacherLink={() => applyClassroomLink(studentLink)} shareUrl={shareUrl} shareNotice={shareNotice} onCreateStudentLink={createStudentLink} onCopyStudentLink={copyStudentLink} customWords={customWords} linkedClassWords={linkedClassWords} classFolders={classFolders} activeFolder={activeFolder} selectedLibraryIds={selectedLibraryIds} folderNameDraft={folderNameDraft} setFolderNameDraft={setFolderNameDraft} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} libraryLevel={libraryLevel} setLibraryLevel={setLibraryLevel} libraryTopic={libraryTopic} setLibraryTopic={setLibraryTopic} folderNotice={folderNotice} folderFileInputRef={folderFileInputRef} libraryWords={libraryWords} onSelectFolder={selectClassFolder} onNewFolder={startNewClassFolder} onCreateFolder={createClassFolder} onSaveFolder={saveActiveClassFolder} onDeleteFolder={deleteActiveClassFolder} onToggleLibraryWord={(id) => setSelectedLibraryIds((current) => current.includes(id) ? current.filter((wordId) => wordId !== id) : [...current, id])} onSelectVisibleWords={(ids) => setSelectedLibraryIds((current) => [...new Set([...current, ...ids])])} onClearVisibleWords={(ids) => setSelectedLibraryIds((current) => current.filter((id) => !ids.includes(id)))} onImportFolder={importClassFolder} onExportFolder={exportActiveClassFolder} studioDraft={studioDraft} setStudioDraft={setStudioDraft} studioNotice={studioNotice} importInputRef={importInputRef} onImport={importVocabulary} onImportFile={importFile} onGenerate={generateIllustration} onGenerateBatch={generateIllustrationBatch} onDelete={deleteCustomWord} generatingWordId={generatingWordId} illustrationBatch={illustrationBatch} />;
+  if (phase === "setup") return <Setup mode={mode} setMode={selectMode} names={names} setNames={setNames} learnerLevel={learnerLevel} setLearnerLevel={setLearnerLevel} wordFocus={wordFocus} setWordFocus={setWordFocus} durationMinutes={durationMinutes} setDurationMinutes={setDurationMinutes} startMatch={startMatch} studentLink={studentLink} setStudentLink={(value) => { setStudentLink(value); setStudentJoined(false); setStudentJoinNotice(null); }} studentJoined={studentJoined} studentJoinNotice={studentJoinNotice} onJoinTeacherLink={() => applyClassroomLink(studentLink)} shareUrl={shareUrl} shareNotice={shareNotice} onCreateStudentLink={createStudentLink} onCopyStudentLink={copyStudentLink} customWords={customWords} linkedClassWords={linkedClassWords} classFolders={classFolders} activeFolder={activeFolder} selectedLibraryIds={selectedLibraryIds} folderNameDraft={folderNameDraft} setFolderNameDraft={setFolderNameDraft} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} libraryLevel={libraryLevel} setLibraryLevel={setLibraryLevel} libraryTopic={libraryTopic} setLibraryTopic={setLibraryTopic} folderNotice={folderNotice} folderFileInputRef={folderFileInputRef} libraryWords={libraryWords} onSelectFolder={selectClassFolder} onNewFolder={startNewClassFolder} onCreateFolder={createClassFolder} onSaveFolder={saveActiveClassFolder} onDeleteFolder={deleteActiveClassFolder} onToggleLibraryWord={(id) => setSelectedLibraryIds((current) => current.includes(id) ? current.filter((wordId) => wordId !== id) : [...current, id])} onSelectVisibleWords={(ids) => setSelectedLibraryIds((current) => [...new Set([...current, ...ids])])} onClearVisibleWords={(ids) => setSelectedLibraryIds((current) => current.filter((id) => !ids.includes(id)))} onImportFolder={importClassFolder} onExportFolder={exportActiveClassFolder} studioDraft={studioDraft} setStudioDraft={setStudioDraft} studioNotice={studioNotice} importInputRef={importInputRef} onImport={importVocabulary} onImportFile={importFile} onGenerate={generateIllustration} onGenerateBatch={generateIllustrationBatch} onRequestBatchReminder={requestBatchReminder} batchReminderArmed={batchReminderArmed} onDelete={deleteCustomWord} generatingWordId={generatingWordId} illustrationBatch={illustrationBatch} />;
   if (phase === "finished" && match) return <Summary match={match} restart={() => { clearMatch(); setPhase("setup"); setMatch(null); }} />;
   if (!match || !activePlayer) return null;
 
@@ -682,10 +807,10 @@ export default function Home() {
 
   return <main className="app-shell"><Header /><div className="content">
     <div className="game-top"><div className="game-title"><div className="eyebrow">{match.mode === "student" ? "Student table" : match.mode === "solo" ? "Individual practice" : "Team rotation"}</div><h2>{activePlayer.name}'s turn</h2></div><div className={`timer ${match.remainingSeconds < 90 ? "warning" : ""}`}><span className="timer-dot" />{formatTime(match.remainingSeconds)}</div><button className="btn btn-ghost" onClick={finishMatch}>End round</button></div>
-    {match.mode === "local" && <div className="player-tabs">{match.players.map((player, index) => <button key={player.id} className={`player-tab ${index === match.activeSeat ? "active" : ""}`} onClick={() => { stopVoice(); setVoiceStatus(null); setSelected([]); setSentence(""); setFeedback(null); setFeedbackSubmissionId(null); setPendingReview(null); setSelectedBuildingId(null); setSelectedFloor(1); setAbilityTargetId(""); setMatch({ ...match, activeSeat: index }); }}>{player.name} · {player.score} pts</button>)}</div>}
+    {match.mode === "local" && <div className="player-tabs">{match.players.map((player, index) => <button key={player.id} className={`player-tab ${index === match.activeSeat ? "active" : ""}`} onClick={() => { stopVoice(); setVoiceStatus(null); setSelected([]); setSentence(""); setFeedback(null); setFeedbackSubmissionId(null); setPendingReview(null); setSentenceCheckMode("ai"); setSelectedBuildingId(null); setSelectedFloor(1); setAbilityTargetId(""); setMatch({ ...match, activeSeat: index }); }}>{player.name} · {player.score} pts</button>)}</div>}
     <div className="game-grid"><section className="panel workspace"><div className="workspace-head"><div><div className="eyebrow">Your word shelf</div><h3>Choose ingredients</h3><div className="subtle">Select one word for a focused build, or several words to make a richer sentence. Known recipes can hide inside a larger combination. Press and hold a card to reveal its meaning.</div></div><span className="pill">{selected.length}/{selectionLimit} selected</span></div>
       <div className="hand">{activePlayer.hand.map((id) => { const item = vocabularyById[id]; const familiarity = activePlayer.familiarity[id] || 0; const definitionRevealed = revealedDefinitions.has(id); const toggle = () => setSelected((current) => current.includes(id) ? current.filter((word) => word !== id) : current.length < selectionLimit ? [...current, id] : current); return <div key={id} className={`word-card ${selected.includes(id) ? "selected" : ""}`} role="button" tabIndex={0} aria-label={`${item.word}. ${definitionRevealed ? `${item.chinese}, ${item.level}` : "Meaning hidden. Press and hold to reveal."}`} onClick={toggle} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); } }} onPointerDown={(event) => startDefinitionHold(event, id)} onPointerUp={endDefinitionHold} onPointerCancel={endDefinitionHold} onPointerLeave={endDefinitionHold} onContextMenu={(event) => event.preventDefault()}><button className="speak" title={`Hear ${item.word}`} onClick={(event) => { event.stopPropagation(); speak(item.word); }}>🔊</button><img src={item.image} alt=""/><b>{item.word}</b><small className={`word-definition ${definitionRevealed ? "revealed" : "hidden"}`}>{definitionRevealed ? `${item.chinese} · ${item.level}` : "Press and hold to reveal"}</small><span className="familiarity" aria-label={`${familiarity} familiarity`}>{[0,1,2,3,4].map((dot) => <i key={dot} className={dot < Math.min(5, familiarity) ? "on" : ""} />)}</span></div>; })}</div>
-      <div className="sentence-area"><div className="eyebrow">Make it meaningful</div><p className="subtle">Use <strong>{selectedLabels || "your selected words"}</strong> in a complete English sentence.</p><textarea ref={sentenceInputRef} className="sentence-box" value={sentence} onChange={(event) => { setSentence(event.target.value); setInputMethod("text"); setVoiceStatus(null); }} placeholder="Example: I bought a pastry, a cold beverage, and a textbook at the cafeteria." />{inputMethod === "voice" && <p className="voice-hint">Voice → text writes the transcript into this box. You can edit it before crafting.</p>}<div className="action-row"><button className="btn btn-primary" disabled={!selected.length || !sentence.trim() || isEvaluating} onClick={evaluate}>{isEvaluating ? "Checking…" : selected.length > 1 ? `Craft with ${selected.length} words` : "Build with this word"}</button><button className={`btn ${isListening ? "btn-coral" : "btn-mint"}`} aria-pressed={isListening} onClick={isListening ? stopVoice : startVoice}>{isListening ? "Listening… tap to stop" : "🎙 Voice → text"}</button><span className="microcopy">{voiceStatus || (inputMethod === "voice" ? "Voice transcript ready" : "Text input")} · select up to {selectionLimit} words</span></div>{feedback && <div className={`feedback ${feedback.valid ? "" : "bad"}`}><strong>{feedback.valid ? "✨ That works" : "Not quite yet"}</strong><p>{feedback.reason}</p>{!feedback.valid && !pendingReview && currentAttempt && <div className="grammar-mistake-row"><button className="btn btn-ghost" disabled={Boolean(currentAttempt.grammarMistake)} onClick={() => setMatch((current) => current ? recordGrammarMistake(current, currentAttempt.id) : current)}>{currentAttempt.grammarMistake ? "✓ Grammar mistake recorded" : "＋ Record grammar mistake"}</button><span>Type it again above when you are ready.</span></div>}{feedback.relationshipSummary && <p className="subtle">{feedback.relationshipSummary}</p>}{feedback.provisional && <div className="provisional">Could not complete the AI check · count it as practice or edit and retry.</div>}{pendingReview && <div className="action-row"><button className="btn btn-mint" onClick={countPendingPractice}>Count as practice</button><button className="btn btn-ghost" onClick={retryPending}>Edit and retry</button></div>}</div>}</div>
+      <div className="sentence-area"><div className="eyebrow">Make it meaningful</div><p className="subtle">Use <strong>{selectedLabels || "your selected words"}</strong> in a complete English sentence.</p><textarea ref={sentenceInputRef} className="sentence-box" value={sentence} onChange={(event) => { setSentence(event.target.value); setInputMethod("text"); setVoiceStatus(null); }} placeholder="Example: I bought a pastry, a cold beverage, and a textbook at the cafeteria." />{inputMethod === "voice" && <p className="voice-hint">Voice → text writes the transcript into this box. You can edit it before crafting.</p>}{match.mode === "local" && <div className="check-mode" role="group" aria-label="Choose who checks the sentence"><div className="check-mode-heading"><span className="eyebrow">Team check</span><small>Choose how this table approves the sentence.</small></div><div className="check-mode-options"><button type="button" className={`check-mode-option ${sentenceCheckMode === "ai" ? "active" : ""}`} aria-pressed={sentenceCheckMode === "ai"} disabled={isEvaluating} onClick={() => setSentenceCheckMode("ai")}><span>✦ AI check</span><small>Grammar + meaning review</small></button><button type="button" className={`check-mode-option ${sentenceCheckMode === "table" ? "active" : ""}`} aria-pressed={sentenceCheckMode === "table"} disabled={isEvaluating} onClick={() => setSentenceCheckMode("table")}><span>✓ Table approves</span><small>Friends decide together</small></button></div>{sentenceCheckMode === "table" && <p className="check-mode-note">Everyone at the table agrees this sentence works, then pass it together.</p>}</div>}<div className="action-row"><button className="btn btn-primary" disabled={!selected.length || !sentence.trim() || isEvaluating} onClick={sentenceCheckMode === "table" ? approveByTable : evaluate}>{isEvaluating ? "Checking…" : sentenceCheckMode === "table" ? "Pass with table approval" : selected.length > 1 ? `Craft with ${selected.length} words` : "Build with this word"}</button><button className={`btn ${isListening ? "btn-coral" : "btn-mint"}`} aria-pressed={isListening} onClick={isListening ? stopVoice : startVoice}>{isListening ? "Listening… tap to stop" : "🎙 Voice → text"}</button><span className="microcopy">{voiceStatus || (inputMethod === "voice" ? "Voice transcript ready" : "Text input")} · select up to {selectionLimit} words</span></div>{feedback && <div className={`feedback ${feedback.valid ? "" : "bad"}`}><strong>{feedback.valid ? "✨ That works" : "Not quite yet"}</strong><p>{feedback.reason}</p>{!feedback.valid && !pendingReview && currentAttempt && <div className="grammar-mistake-row"><button className="btn btn-ghost" disabled={Boolean(currentAttempt.grammarMistake)} onClick={() => setMatch((current) => current ? recordGrammarMistake(current, currentAttempt.id) : current)}>{currentAttempt.grammarMistake ? "✓ Grammar mistake recorded" : "＋ Record grammar mistake"}</button><span>Type it again above when you are ready.</span></div>}{feedback.relationshipSummary && <p className="subtle">{feedback.relationshipSummary}</p>}{feedback.provisional && <div className="provisional">Could not complete the AI check · count it as practice or edit and retry.</div>}{pendingReview && <div className="action-row"><button className="btn btn-mint" onClick={countPendingPractice}>Count as practice</button><button className="btn btn-ghost" onClick={retryPending}>Edit and retry</button></div>}</div>}</div>
     </section><aside className="side-stack"><section className="panel side-card"><h3>Your world</h3><div className="score-row"><span>World score</span><span className="score">{activePlayer.score}</span></div><div className="score-row"><span>Recipes discovered</span><span className="score">{activePlayer.discoveredRecipes.length}/{recipes.length}</span></div><div className="score-row"><span>Core word</span><span className="score">{coreWord(activePlayer) ? vocabularyById[coreWord(activePlayer)]?.word : "—"}</span></div></section><section className="panel side-card"><h3>How to play</h3><p className="subtle">A single word grows familiarity. A meaningful pair unlocks a new place. Borrowing another player’s word helps both worlds learn. Open the campus map below to choose a floor and spend a building ability.</p>{match.lastInteraction && <div className="feedback interaction-feed"><strong>Campus message</strong><p>{match.lastInteraction}</p></div>}{match.previewWord && <div className="feedback"><strong>Next draw</strong><p>{vocabularyById[match.previewWord]?.word}</p></div>}</section></aside></div>
     <div className="campus-tools"><BuildingPanel player={activePlayer} match={match} selectedBuildingId={selectedBuildingId} selectedFloor={selectedFloor} targetPlayerId={abilityTargetId} onSelectBuilding={(id) => { setSelectedBuildingId(id); setSelectedFloor(1); setAbilityTargetId(""); }} onSelectFloor={setSelectedFloor} onSelectTarget={setAbilityTargetId} onUseAbility={useSelectedAbility} /><RecipeBook player={activePlayer} onTryFormula={loadFormula} onVisitBuilding={visitBuilding} /></div>
   </div><div className="footer-note">Wordcraft Classroom · meaningful vocabulary practice at your learners’ level</div></main>;
@@ -787,16 +912,24 @@ type SetupProps = {
   onImportFile: (file: File | undefined) => void;
   onGenerate: (wordId: string) => void;
   onGenerateBatch: () => void;
+  onRequestBatchReminder: () => void | Promise<void>;
+  batchReminderArmed: boolean;
   onDelete: (wordId: string) => void;
   generatingWordId: string | null;
-  illustrationBatch: { current: number; total: number; failed: string[] } | null;
+  illustrationBatch: IllustrationBatchState | null;
 };
 
-function Setup({ mode, setMode, names, setNames, learnerLevel, setLearnerLevel, wordFocus, setWordFocus, durationMinutes, setDurationMinutes, startMatch, studentLink, setStudentLink, studentJoined, studentJoinNotice, onJoinTeacherLink, shareUrl, shareNotice, onCreateStudentLink, onCopyStudentLink, customWords, linkedClassWords, classFolders, activeFolder, selectedLibraryIds, folderNameDraft, setFolderNameDraft, libraryQuery, setLibraryQuery, libraryLevel, setLibraryLevel, libraryTopic, setLibraryTopic, folderNotice, folderFileInputRef, libraryWords, onSelectFolder, onNewFolder, onCreateFolder, onSaveFolder, onDeleteFolder, onToggleLibraryWord, onSelectVisibleWords, onClearVisibleWords, onImportFolder, onExportFolder, studioDraft, setStudioDraft, studioNotice, importInputRef, onImport, onImportFile, onGenerate, onGenerateBatch, onDelete, generatingWordId, illustrationBatch }: SetupProps) {
+function Setup({ mode, setMode, names, setNames, learnerLevel, setLearnerLevel, wordFocus, setWordFocus, durationMinutes, setDurationMinutes, startMatch, studentLink, setStudentLink, studentJoined, studentJoinNotice, onJoinTeacherLink, shareUrl, shareNotice, onCreateStudentLink, onCopyStudentLink, customWords, linkedClassWords, classFolders, activeFolder, selectedLibraryIds, folderNameDraft, setFolderNameDraft, libraryQuery, setLibraryQuery, libraryLevel, setLibraryLevel, libraryTopic, setLibraryTopic, folderNotice, folderFileInputRef, libraryWords, onSelectFolder, onNewFolder, onCreateFolder, onSaveFolder, onDeleteFolder, onToggleLibraryWord, onSelectVisibleWords, onClearVisibleWords, onImportFolder, onExportFolder, studioDraft, setStudioDraft, studioNotice, importInputRef, onImport, onImportFile, onGenerate, onGenerateBatch, onRequestBatchReminder, batchReminderArmed, onDelete, generatingWordId, illustrationBatch }: SetupProps) {
   const levels = LEVEL_OPTIONS;
   const focuses = FOCUS_OPTIONS;
   const studentMode = mode === "student";
   const focusLabel = focuses.find((focus) => focus.id === wordFocus)?.label || "your teacher's focus";
+  const startNewClassFolder = onNewFolder;
+  const createClassFolder = onCreateFolder;
+  const saveActiveClassFolder = onSaveFolder;
+  const deleteActiveClassFolder = onDeleteFolder;
+  const importClassFolder = onImportFolder;
+  const exportActiveClassFolder = onExportFolder;
 
   return <main className="app-shell"><Header />
     <div className="hero teacher-hero">
@@ -820,7 +953,7 @@ function Setup({ mode, setMode, names, setNames, learnerLevel, setLearnerLevel, 
       {studentMode && studentJoined && <div className="student-ready"><span>✓</span><div><b>Ready for {focusLabel}</b><small>{linkedClassWords.length ? `${linkedClassWords.length} class words` : "Class word bank"} · {durationMinutes} minutes</small></div></div>}
       <div className="teacher-actions"><button className="btn btn-primary start-lesson" disabled={studentMode && !studentJoined} onClick={startMatch}>{studentMode ? "Start student table" : "Start vocabulary round"}<span>→</span></button><p className="round-random-note"><span aria-hidden="true">↻</span> Words reshuffle each time you start a round.</p>{!studentMode && <button className="share-link-trigger" onClick={onCreateStudentLink}>🔗 Get student link</button>}</div>
       {!studentMode && shareUrl && <div className="share-link-panel" aria-live="polite"><div><b>Student link ready</b><small>Students can open this link or paste it into Student Table.</small></div><div className="share-link-row"><label className="visually-hidden" htmlFor="student-share-link">Student classroom link</label><input id="student-share-link" className="share-link-input" value={shareUrl} readOnly onFocus={(event) => event.currentTarget.select()} /><button className="btn btn-mint" onClick={onCopyStudentLink}>Copy</button></div>{shareNotice && <p className="share-link-notice" role="status">{shareNotice}</p>}</div>}
-      </section>{!studentMode && <section className="panel feature-card teacher-guide"><div className="eyebrow">For every learner</div><h3>Teachers set the pace.<br/>Students make it theirs.</h3><div className="feature-list"><div className="feature"><span className="feature-icon">01</span><div><b>Teacher sets the words</b><small>Build a focused set and share one classroom link.</small></div></div><div className="feature"><span className="feature-icon">02</span><div><b>Students join instantly</b><small>Each learner gets a personal table with no account.</small></div></div><div className="feature"><span className="feature-icon">03</span><div><b>Context over recall</b><small>Use complete sentences to make every word stick.</small></div></div><div className="feature"><span className="feature-icon">04</span><div><b>Review you can see</b><small>Every table shows which words need another turn.</small></div></div></div><div className="teacher-tip"><b>Teacher tip</b><span>Project the teacher view, then let students open their own Student Table.</span></div></section>}</div>{!studentMode && <><ClassFolderStudio classFolders={classFolders} activeFolder={activeFolder} selectedLibraryIds={selectedLibraryIds} folderNameDraft={folderNameDraft} setFolderNameDraft={setFolderNameDraft} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} libraryLevel={libraryLevel} setLibraryLevel={setLibraryLevel} libraryTopic={libraryTopic} setLibraryTopic={setLibraryTopic} folderNotice={folderNotice} folderFileInputRef={folderFileInputRef} libraryWords={libraryWords} onSelectFolder={onSelectFolder} onNewFolder={onNewFolder} onCreateFolder={onCreateFolder} onSaveFolder={onSaveFolder} onDeleteFolder={onDeleteFolder} onToggleLibraryWord={onToggleLibraryWord} onSelectVisibleWords={onSelectVisibleWords} onClearVisibleWords={onClearVisibleWords} onImportFolder={onImportFolder} onExportFolder={onExportFolder} /><IllustrationStudio customWords={customWords} studioDraft={studioDraft} setStudioDraft={setStudioDraft} studioNotice={studioNotice} importInputRef={importInputRef} onImport={onImport} onImportFile={onImportFile} onGenerate={onGenerate} onGenerateBatch={onGenerateBatch} onDelete={onDelete} generatingWordId={generatingWordId} illustrationBatch={illustrationBatch} /></>}</div><div className="footer-note">Teachers share the words · students practice on their own table · no accounts needed</div></main>;
+      </section>{!studentMode && <section className="panel feature-card teacher-guide"><div className="eyebrow">For every learner</div><h3>Teachers set the pace.<br/>Students make it theirs.</h3><div className="feature-list"><div className="feature"><span className="feature-icon">01</span><div><b>Teacher sets the words</b><small>Build a focused set and share one classroom link.</small></div></div><div className="feature"><span className="feature-icon">02</span><div><b>Students join instantly</b><small>Each learner gets a personal table with no account.</small></div></div><div className="feature"><span className="feature-icon">03</span><div><b>Context over recall</b><small>Use complete sentences to make every word stick.</small></div></div><div className="feature"><span className="feature-icon">04</span><div><b>Review you can see</b><small>Every table shows which words need another turn.</small></div></div></div><div className="teacher-tip"><b>Teacher tip</b><span>Project the teacher view, then let students open their own Student Table.</span></div></section>}</div>{!studentMode && <><ClassFolderStudio classFolders={classFolders} activeFolder={activeFolder} selectedLibraryIds={selectedLibraryIds} folderNameDraft={folderNameDraft} setFolderNameDraft={setFolderNameDraft} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} libraryLevel={libraryLevel} setLibraryLevel={setLibraryLevel} libraryTopic={libraryTopic} setLibraryTopic={setLibraryTopic} folderNotice={folderNotice} folderFileInputRef={folderFileInputRef} libraryWords={libraryWords} onSelectFolder={onSelectFolder} onNewFolder={startNewClassFolder} onCreateFolder={createClassFolder} onSaveFolder={saveActiveClassFolder} onDeleteFolder={deleteActiveClassFolder} onToggleLibraryWord={onToggleLibraryWord} onSelectVisibleWords={onSelectVisibleWords} onClearVisibleWords={onClearVisibleWords} onImportFolder={importClassFolder} onExportFolder={exportActiveClassFolder} /><IllustrationStudio customWords={customWords} studioDraft={studioDraft} setStudioDraft={setStudioDraft} studioNotice={studioNotice} importInputRef={importInputRef} onImport={onImport} onImportFile={onImportFile} onGenerate={onGenerate} onGenerateBatch={onGenerateBatch} onRequestBatchReminder={onRequestBatchReminder} batchReminderArmed={batchReminderArmed} onDelete={onDelete} generatingWordId={generatingWordId} illustrationBatch={illustrationBatch} /></>}</div><div className="footer-note">Teachers share the words · students practice on their own table · no accounts needed</div></main>;
 }
 
 type ClassFolderStudioProps = {
@@ -892,14 +1025,34 @@ type IllustrationStudioProps = {
   onImportFile: (file: File | undefined) => void;
   onGenerate: (wordId: string) => void;
   onGenerateBatch: () => void;
+  onRequestBatchReminder: () => void | Promise<void>;
+  batchReminderArmed: boolean;
   onDelete: (wordId: string) => void;
   generatingWordId: string | null;
-  illustrationBatch: { current: number; total: number; failed: string[] } | null;
+  illustrationBatch: IllustrationBatchState | null;
 };
 
-function IllustrationStudio({ customWords, studioDraft, setStudioDraft, studioNotice, importInputRef, onImport, onImportFile, onGenerate, onGenerateBatch, onDelete, generatingWordId, illustrationBatch }: IllustrationStudioProps) {
+function IllustrationStudio({ customWords, studioDraft, setStudioDraft, studioNotice, importInputRef, onImport, onImportFile, onGenerate, onGenerateBatch, onRequestBatchReminder, batchReminderArmed, onDelete, generatingWordId, illustrationBatch }: IllustrationStudioProps) {
+  const [batchClock, setBatchClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!illustrationBatch) return;
+    setBatchClock(Date.now());
+    const timer = window.setInterval(() => setBatchClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [Boolean(illustrationBatch)]);
+
+  const missingCount = customWords.filter((word) => !isGeneratedIllustration(word.image)).length;
+  const progressPercent = illustrationBatch ? Math.round((illustrationBatch.processed / illustrationBatch.total) * 100) : 0;
+  const activeWords = illustrationBatch?.active.map((id) => customWords.find((word) => word.id === id)?.word).filter(Boolean) || [];
+
   return <section className="panel illustration-studio">
-    <div className="studio-heading"><div><div className="eyebrow">Teacher word studio · 词汇插画工作室</div><h2>Bring your own vocabulary to life</h2><p className="subtle">Add your words, then make the whole set ready in one pass. Your set stays on this device.</p></div><div className="studio-count-wrap"><span className="studio-count">{customWords.length}<small>your words</small></span><button className="btn btn-primary batch-button" disabled={!customWords.some((word) => !isGeneratedIllustration(word.image)) || illustrationBatch !== null || generatingWordId !== null} onClick={onGenerateBatch}>{illustrationBatch ? `Drawing ${illustrationBatch.current} of ${illustrationBatch.total}` : "Generate all missing art"}</button></div></div>
+    <div className="studio-heading"><div><div className="eyebrow">Teacher word studio · 词汇插画工作室</div><h2>Bring your own vocabulary to life</h2><p className="subtle">Add your words, then make the whole set ready in one pass. Your set stays on this device.</p></div><div className="studio-count-wrap"><span className="studio-count">{customWords.length}<small>your words</small></span><div className="batch-action"><button className="btn btn-primary batch-button" disabled={!missingCount || illustrationBatch !== null || generatingWordId !== null} onClick={onGenerateBatch}>{illustrationBatch ? `${illustrationBatch.processed}/${illustrationBatch.total} processed` : "Generate all missing art"}</button><small className="batch-estimate-hint">{illustrationBatch ? "Live estimate shown below" : missingCount ? `Estimated ${formatBatchEstimate(missingCount)} · up to ${Math.min(ILLUSTRATION_BATCH_CONCURRENCY, missingCount)} at once` : "All imported words are illustrated"}</small></div></div></div>
+    {illustrationBatch && <div className="batch-progress-panel" aria-live="polite" aria-label="Illustration batch progress">
+      <div className="batch-progress-header"><div><b>Batch drawing in progress</b><small>Each image can take up to 1 minute. Three images can render at once, and results save as they arrive.</small></div><div className="batch-progress-score"><strong>{progressPercent}%</strong><span>{illustrationBatch.completed} ready{illustrationBatch.failed.length ? ` · ${illustrationBatch.failed.length} failed` : ""}</span></div></div>
+      <div className="batch-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={illustrationBatch.total} aria-valuenow={illustrationBatch.processed} aria-label={`${illustrationBatch.processed} of ${illustrationBatch.total} illustrations processed`}><span style={{ width: `${progressPercent}%` }} /></div>
+      <div className="batch-progress-meta"><span>{activeWords.length ? `Drawing ${activeWords.slice(0, 2).join(" · ")}${activeWords.length > 2 ? ` +${activeWords.length - 2}` : ""}` : "Finishing the last saved results…"}</span><span>预计 {formatBatchRemaining(illustrationBatch.estimatedDoneAt, batchClock)} · around {formatBatchClock(illustrationBatch.estimatedDoneAt)}</span></div>
+      <div className="batch-progress-actions">{batchReminderArmed ? <span className="batch-reminder-active">🔔 Desktop reminder on</span> : <button className="btn btn-mint batch-reminder-button" onClick={onRequestBatchReminder}>🔔 Remind me when ready</button>}<small className="batch-progress-note">Keep this tab open; you can switch tabs. Closing it stops the queue.</small></div>
+    </div>}
     <div className="studio-grid">
       <div className="import-column">
         <div className="studio-label">1 · Add your words</div>
@@ -907,7 +1060,7 @@ function IllustrationStudio({ customWords, studioDraft, setStudioDraft, studioNo
         <div className="paste-row"><textarea className="studio-textarea" value={studioDraft} onChange={(event) => setStudioDraft(event.target.value)} placeholder={"Or paste words here…\ncompass, direction finder, L1\ncurious, interested in learning, L2"} /><button className="btn btn-primary" disabled={!studioDraft.trim()} onClick={() => onImport(studioDraft)}>Add words</button></div>
         {studioNotice && <div className="studio-notice" role="status">{studioNotice}</div>}
         <div className="studio-label studio-label-spaced">Your imported set {customWords.length > 0 && <span>{customWords.filter((word) => isGeneratedIllustration(word.image)).length}/{customWords.length} illustrated</span>}</div>
-        {customWords.length ? <div className="custom-word-list">{customWords.map((word) => { const isGenerated = isGeneratedIllustration(word.image); const active = generatingWordId === word.id; return <div className={`custom-word-row ${active ? "is-drawing" : ""}`} key={word.id}><img src={word.image || PENDING_WORD_IMAGE} alt=""/><div className="custom-word-copy"><b>{word.word}</b><small>{word.chinese || "No meaning provided"} · {word.level}</small></div><span className={`art-status ${isGenerated ? "ready" : "waiting"}`}>{active ? "Drawing…" : isGenerated ? "Illustrated" : "Needs art"}</span><button className="btn btn-mint art-button" disabled={generatingWordId !== null || illustrationBatch !== null} onClick={() => onGenerate(word.id)}>{active ? "Drawing…" : isGenerated ? "Redraw" : "Generate art"}</button><button className="delete-word" aria-label={`Delete ${word.word}`} disabled={generatingWordId !== null || illustrationBatch !== null} onClick={() => onDelete(word.id)}>Delete</button></div>; })}</div> : <div className="studio-empty"><span>✎</span><div><b>Start by adding your words.</b><small>Use CSV, TXT, or JSON, or paste one word per line. Then generate the missing art for the set.</small></div></div>}
+        {customWords.length ? <div className="custom-word-list">{customWords.map((word) => { const isGenerated = isGeneratedIllustration(word.image); const active = generatingWordId === word.id || Boolean(illustrationBatch?.active.includes(word.id)); return <div className={`custom-word-row ${active ? "is-drawing" : ""}`} key={word.id}><img src={word.image || PENDING_WORD_IMAGE} alt=""/><div className="custom-word-copy"><b>{word.word}</b><small>{word.chinese || "No meaning provided"} · {word.level}</small></div><span className={`art-status ${isGenerated ? "ready" : "waiting"}`}>{active ? "Drawing…" : isGenerated ? "Illustrated" : "Needs art"}</span><button className="btn btn-mint art-button" disabled={generatingWordId !== null || illustrationBatch !== null} onClick={() => onGenerate(word.id)}>{active ? "Drawing…" : isGenerated ? "Redraw" : "Generate art"}</button><button className="delete-word" aria-label={`Delete ${word.word}`} disabled={generatingWordId !== null || illustrationBatch !== null} onClick={() => onDelete(word.id)}>Delete</button></div>; })}</div> : <div className="studio-empty"><span>✎</span><div><b>Start by adding your words.</b><small>Use CSV, TXT, or JSON, or paste one word per line. Then generate the missing art for the set.</small></div></div>}
       </div>
     </div>
   </section>;
