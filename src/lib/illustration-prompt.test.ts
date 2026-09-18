@@ -12,6 +12,7 @@ describe("illustration prompt", () => {
     expect(prompt).toContain("never replace it with an unrelated animal");
     expect(prompt).toContain("do not add animal anatomy");
     expect(prompt).toContain("fixed Wordcraft house style");
+    expect(prompt).toContain("Face rule: when the subject can show a face, the face is required");
     expect(prompt).toContain("two solid black bean-shaped dot eyes");
     expect(prompt).toContain("simple cheerful flat color fills");
     expect(prompt).toContain("Do not make a realistic child");
