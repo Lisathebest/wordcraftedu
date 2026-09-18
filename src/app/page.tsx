@@ -540,20 +540,16 @@ export default function Home() {
   const startDefinitionHold = (event: ReactPointerEvent<HTMLDivElement>, wordId: string) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     clearDefinitionHold();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    setRevealedDefinitions(new Set());
     definitionHoldTimer.current = window.setTimeout(() => {
-      setRevealedDefinitions((current) => {
-        const next = new Set(current);
-        next.add(wordId);
-        return next;
-      });
+      setRevealedDefinitions(new Set([wordId]));
       definitionHoldTimer.current = null;
     }, 550);
   };
 
-  const endDefinitionHold = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const endDefinitionHold = () => {
     clearDefinitionHold();
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    setRevealedDefinitions(new Set());
   };
 
   const startVoice = () => {
