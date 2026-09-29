@@ -1,10 +1,10 @@
 .page { --zh-ink:#24342f; --zh-muted:#667871; --zh-paper:#fffdf8; --zh-mint:#dcefe5; --zh-green:#2e8066; --zh-coral:#ed866f; --zh-gold:#efc65b; --zh-line:#d9e4dd; min-height:100vh; padding:24px clamp(14px,4vw,58px) 64px; color:var(--zh-ink); font-family:"DM Sans","PingFang SC","Microsoft YaHei",sans-serif; background:radial-gradient(circle at 8% 0,#e0f0e6 0,transparent 30%),radial-gradient(circle at 95% 8%,#fff0c8 0,transparent 27%),#f7f4ec; }
 .page button,.page textarea { font:inherit; }
-.topbar { max-width:1280px; height:86px; margin:0 auto 26px; display:flex; align-items:center; justify-content:space-between; gap:20px; }
-.brand { width:142px; height:82px; overflow:hidden; display:block; }
-.brand img { width:154px; transform:translate(-8px,-11px); }
+.topbar { max-width:1280px; height:112px; margin:0 auto 26px; display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.brand { width:142px; flex:none; display:block; line-height:0; }
+.brand img { display:block; width:100%; height:auto; }
 .languageSwitch { display:flex; align-items:center; padding:5px; border:1px solid #cddbd2; border-radius:999px; background:#ffffffb8; box-shadow:0 6px 22px #33594a12; }
-.languageSwitch a,.languageSwitch span { padding:7px 12px; border-radius:999px; color:#60726b; text-decoration:none; font-size:12px; font-weight:800; }
+.languageSwitch a,.languageSwitch span { padding:7px 12px; border-radius:999px; color:#60726b; text-decoration:none; font-size:12px; font-weight:800; white-space:nowrap; }
 .languageSwitch span { background:var(--zh-ink); color:#fffdf8; }
 .setupShell,.practiceShell,.summaryShell { max-width:1280px; margin:0 auto; }
 .hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(340px,.72fr); gap:36px; align-items:center; margin:34px 0 36px; }
@@ -178,9 +178,8 @@
   .structureHint code { flex-basis:70%; }
 }
 @media (max-width:480px) {
-  .topbar { height:67px; margin-bottom:18px; }
-  .brand { width:115px; height:65px; }
-  .brand img { width:126px; }
+  .topbar { height:92px; margin-bottom:18px; }
+  .brand { width:115px; }
   .languageSwitch a,.languageSwitch span { padding:6px 9px; font-size:10px; }
   .hero { margin-top:22px; gap:24px; }
   .hero h1 { font-size:42px; }

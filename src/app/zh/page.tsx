@@ -195,12 +195,12 @@ export default function ChineseLearningPage() {
   return <main className={styles.page} lang="zh-CN">
     <header className={styles.topbar}>
       <Link className={styles.brand} href="/zh" aria-label="Wordcraft 中文学习首页"><img src="/wordcraft-logo-transparent.png" alt="Wordcraft Classroom" /></Link>
-      <nav className={styles.languageSwitch} aria-label="语言切换"><Link href="/">English</Link><span aria-current="page">中文</span></nav>
+      <nav className={styles.languageSwitch} aria-label="语言切换"><Link href="/">English</Link><span aria-current="page">中文练习</span></nav>
     </header>
 
     {phase === "setup" && <div className={styles.setupShell}>
       <section className={styles.hero}>
-        <div><span className={styles.kicker}>给中国四年级学生的英语词汇练习</span><h1>先想中文，<br/><em>再搭一座英文句子桥。</em></h1><p>选词、写下想表达的意思，再用动词、时态和句型提示完成自己的英文句子。</p></div>
+        <div><span className={styles.kicker}>给2-5年级学生的想象乐园</span><h1>先想中文，<br/><em>再搭一座英文句子桥。</em></h1><p>选词、写下想表达的意思，再用动词、时态和句型提示完成自己的英文句子。</p></div>
         <div className={styles.bridgePreview} aria-label="学习流程"><span>中文想法</span><i>→</i><span>语言提示</span><i>→</i><span>英文句子</span></div>
       </section>
 
