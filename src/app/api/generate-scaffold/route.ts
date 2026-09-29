@@ -9,8 +9,8 @@ type Provider = { apiKey: string; baseUrl: string; model: string; jsonMode: bool
 
 function providers(): Provider[] {
   const values: Array<Provider | null> = [
+    process.env.DEEPSEEK_CHINESE_API_KEY?.trim() ? { apiKey: process.env.DEEPSEEK_CHINESE_API_KEY.trim(), baseUrl: process.env.DEEPSEEK_CHINESE_BASE_URL || process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com", model: process.env.DEEPSEEK_CHINESE_MODEL || process.env.DEEPSEEK_MODEL || "deepseek-chat", jsonMode: true } : null,
     process.env.AGNES_API_KEY?.trim() ? { apiKey: process.env.AGNES_API_KEY.trim(), baseUrl: process.env.AGNES_BASE_URL || "https://apihub.agnes-ai.com/v1", model: process.env.AGNES_TEXT_MODEL || "agnes-2.0-flash", jsonMode: false } : null,
-    process.env.DEEPSEEK_API_KEY?.trim() ? { apiKey: process.env.DEEPSEEK_API_KEY.trim(), baseUrl: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com", model: process.env.DEEPSEEK_MODEL || "deepseek-chat", jsonMode: true } : null,
     process.env.OPENAI_API_KEY?.trim() ? { apiKey: process.env.OPENAI_API_KEY.trim(), baseUrl: "https://api.openai.com/v1", model: process.env.OPENAI_MODEL || "gpt-4.1-mini", jsonMode: true } : null,
   ];
   return values.filter((value): value is Provider => value !== null);

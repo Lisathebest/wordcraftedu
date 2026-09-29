@@ -106,33 +106,41 @@ function parseAnyAnswer(answers: string[]): ProviderEvaluation | null {
   return null;
 }
 
-function configuredProviders(): EvaluatorProvider[] {
+function configuredProviders(input: EvaluationRequest): EvaluatorProvider[] {
+  const chineseFeedback = input.feedbackLanguage === "zh-CN";
   const agnesApiKey = process.env.AGNES_API_KEY?.trim();
-  const deepSeekApiKey = process.env.DEEPSEEK_API_KEY?.trim();
+  // Keep Chinese traffic on its own DeepSeek key so usage can be measured
+  // separately from the English game. Never fall back to the shared key.
+  const deepSeekApiKey = (chineseFeedback ? process.env.DEEPSEEK_CHINESE_API_KEY : process.env.DEEPSEEK_API_KEY)?.trim();
   const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
-  const providers: Array<EvaluatorProvider | null> = [
-    agnesApiKey ? {
+  const agnesProvider = agnesApiKey ? {
       name: "agnes",
       apiKey: agnesApiKey,
       baseUrl: process.env.AGNES_BASE_URL || "https://apihub.agnes-ai.com/v1",
       model: process.env.AGNES_TEXT_MODEL || "agnes-2.0-flash",
       supportsJsonMode: false,
-    } : null,
-    deepSeekApiKey ? {
+    } satisfies EvaluatorProvider : null;
+  const deepSeekProvider = deepSeekApiKey ? {
       name: "deepseek",
       apiKey: deepSeekApiKey,
-      baseUrl: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com",
-      model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+      baseUrl: chineseFeedback
+        ? process.env.DEEPSEEK_CHINESE_BASE_URL || process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com"
+        : process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com",
+      model: chineseFeedback
+        ? process.env.DEEPSEEK_CHINESE_MODEL || process.env.DEEPSEEK_MODEL || "deepseek-chat"
+        : process.env.DEEPSEEK_MODEL || "deepseek-chat",
       supportsJsonMode: true,
-    } : null,
-    openAiApiKey ? {
+    } satisfies EvaluatorProvider : null;
+  const openAiProvider = openAiApiKey ? {
       name: "openai",
       apiKey: openAiApiKey,
       baseUrl: "https://api.openai.com/v1",
       model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
       supportsJsonMode: true,
-    } : null,
-  ];
+    } satisfies EvaluatorProvider : null;
+  const providers: Array<EvaluatorProvider | null> = chineseFeedback
+    ? [deepSeekProvider, agnesProvider, openAiProvider]
+    : [agnesProvider, deepSeekProvider, openAiProvider];
   return providers.filter((provider): provider is EvaluatorProvider => provider !== null);
 }
 
@@ -220,7 +228,7 @@ export async function POST(request: Request) {
   if (rules) return NextResponse.json(localizeRuleResult(rules, input));
   // Agnes is primary; any configured fallback is tried when it is rate-limited,
   // unavailable, or returns an answer that cannot be parsed.
-  const providers = configuredProviders();
+  const providers = configuredProviders(input);
   if (!providers.length) return NextResponse.json(localizeRuleResult(rulesFallback(input), input));
 
   const started = Date.now();
