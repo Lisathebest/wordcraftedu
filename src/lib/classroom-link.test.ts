@@ -10,15 +10,15 @@ const word: VocabularyWord = {
 
 describe("classroom links", () => {
   it("round-trips lesson settings, Chinese translations, and remote illustrations", () => {
-    const link = createClassroomLink("https://wordcraft.example", { learnerLevel: "developing", wordFocus: "mixed", durationMinutes: 12, customWords: [word] });
+    const link = createClassroomLink("https://wordcraft.example", { learnerLevel: "developing", wordFocus: "mixed", durationMinutes: 12, languageCheckMode: "fast", customWords: [word] });
     const parsed = readClassroomLink(link);
-    expect(parsed).toMatchObject({ learnerLevel: "developing", wordFocus: "mixed", durationMinutes: 12, customWords: [{ id: "custom-compass", word: "compass", chinese: "指南针", image: "https://example.com/compass.png" }] });
+    expect(parsed).toMatchObject({ learnerLevel: "developing", wordFocus: "mixed", durationMinutes: 12, languageCheckMode: "fast", customWords: [{ id: "custom-compass", word: "compass", chinese: "指南针", image: "https://example.com/compass.png" }] });
     expect(hydrateSharedWords(parsed!.customWords)[0].collocations).toEqual(["compass", "use compass", "learn compass"]);
   });
 
   it("preserves bundled word IDs in a shared class set", () => {
     const bundledWord = { ...word, id: "cafeteria", word: "cafeteria", image: "/vocab/cafeteria.png" };
-    const link = createClassroomLink("https://wordcraft.example", { learnerLevel: "starter", wordFocus: "everyday", durationMinutes: 8, customWords: [bundledWord] });
+    const link = createClassroomLink("https://wordcraft.example", { learnerLevel: "starter", wordFocus: "everyday", durationMinutes: 8, languageCheckMode: "ai", customWords: [bundledWord] });
     expect(readClassroomLink(link)?.customWords[0]).toMatchObject({ id: "cafeteria", image: "/vocab/cafeteria.png" });
   });
 

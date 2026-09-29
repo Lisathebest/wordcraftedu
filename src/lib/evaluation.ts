@@ -28,6 +28,22 @@ export function evaluateRules(request: EvaluationRequest): EvaluationResult | nu
   return null;
 }
 
+/** Complete the local-only path after the shared structural checks pass. */
+export function evaluateFast(request: EvaluationRequest): EvaluationResult {
+  const rulesResult = evaluateRules(request);
+  if (rulesResult) return rulesResult;
+  const words = request.targetWords.map((id) => vocabularyById[id]?.word ?? id);
+  return {
+    valid: true,
+    confidence: 0.9,
+    reason: "Your sentence has a clear structure and includes every chosen word.",
+    correctedSentence: request.sentence.trim(),
+    relationshipSummary: words.length > 1 ? `${words.join(" + ")} passed the fast check.` : `${words[0]} passed the fast check.`,
+    source: "rules",
+    provisional: false,
+  };
+}
+
 function invalid(reason: string): EvaluationResult {
   return { valid: false, confidence: 0.98, reason, correctedSentence: "", relationshipSummary: "", source: "rules", provisional: false };
 }
@@ -44,5 +60,5 @@ export function rulesFallback(request: EvaluationRequest): EvaluationResult {
 }
 
 export function evaluationCacheKey(request: EvaluationRequest) {
-  return `${normalizeSentence(request.sentence)}|${[...request.targetWords].sort().join(",")}|${request.gradeBand}`;
+  return `${normalizeSentence(request.sentence)}|${[...request.targetWords].sort().join(",")}|${request.gradeBand}|${request.feedbackLanguage || "en"}`;
 }

@@ -32,8 +32,22 @@ function asRequest(input: unknown): EvaluationRequest {
     sentence: typeof value.sentence === "string" ? value.sentence : "",
     inputMethod: value.inputMethod === "voice" ? "voice" : "text",
     targetWords: Array.isArray(value.targetWords) ? value.targetWords.filter((word): word is string => typeof word === "string") : [],
-    gradeBand: value.gradeBand === "7-9" ? "7-9" : "5-6",
+    gradeBand: value.gradeBand === "4" ? "4" : value.gradeBand === "7-9" ? "7-9" : "5-6",
+    feedbackLanguage: value.feedbackLanguage === "zh-CN" ? "zh-CN" : "en",
   };
+}
+
+function localizeRuleResult(result: EvaluationResult, input: EvaluationRequest): EvaluationResult {
+  if (input.feedbackLanguage !== "zh-CN") return result;
+  const missing = input.targetWords.filter((target) => !normalizeSentence(input.sentence).includes(normalizeSentence(target)));
+  const reason = missing.length
+    ? `句子里还需要用到 ${missing.join(" 和 ")}。`
+    : normalizeSentence(input.sentence).split(" ").filter(Boolean).length < 4
+      ? "再补充一些内容，让它成为完整的英文句子。"
+      : result.valid
+        ? "句子结构清楚，也用到了所选单词。"
+        : "句子还需要一个清楚的动作或状态。";
+  return { ...result, reason, relationshipSummary: result.relationshipSummary ? "你已经把目标词放进同一个意思完整的句子里。" : "" };
 }
 
 function contentToText(content: unknown): string {
@@ -140,7 +154,7 @@ async function evaluateWithProvider(input: EvaluationRequest, provider: Evaluato
       response = await fetch(`${provider.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.apiKey}` },
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(input.gradeBand === "4" ? 8000 : 30000),
         body: JSON.stringify({
           model: provider.model,
           temperature: 0.1,
@@ -150,7 +164,7 @@ async function evaluateWithProvider(input: EvaluationRequest, provider: Evaluato
           // same JSON contract without spending a request on a 400 response.
           ...(provider.supportsJsonMode ? { response_format: { type: "json_object" } } : {}),
           messages: [
-            { role: "system", content: "You check an English vocabulary-game sentence for grades 5-9. Return only one compact JSON object with exactly these fields: valid (boolean), confidence (number from 0 to 1), reason (one short supportive sentence), correctedSentence (string), and relationshipSummary (one short sentence explaining how the target words relate). valid must be true only when the sentence is complete, every target word makes sense, and the English has no word-form, subject-verb agreement, tense, article, preposition, pronoun, modal-verb, singular/plural, spelling, or sentence-structure error. Ignore only capitalization and missing final punctuation. For an invalid sentence, set valid to false, identify the most useful change in plain language, and provide a minimally corrected sentence. For a valid sentence, correctedSentence must exactly equal the submitted sentence. Write directly to a primary-school learner in friendly, everyday English. Keep reason and relationshipSummary under 15 words each. Never use technical language; avoid terms such as semantic, syntax, or morphology. Do not include markdown, commentary, or reasoning outside the JSON object." },
+            { role: "system", content: `You check an English vocabulary-game sentence for grades 4-9. Return only one compact JSON object with exactly these fields: valid (boolean), confidence (number from 0 to 1), reason (one short supportive sentence), correctedSentence (string), and relationshipSummary (one short sentence explaining how the target words relate). valid must be true only when the sentence is complete, every target word makes sense, and the English has no word-form, subject-verb agreement, tense, article, preposition, pronoun, modal-verb, singular/plural, spelling, or sentence-structure error. Ignore only capitalization and missing final punctuation. For an invalid sentence, set valid to false, identify the most useful change in plain language, and provide a minimally corrected sentence. For a valid sentence, correctedSentence must exactly equal the submitted sentence. Write directly to a primary-school learner in friendly, everyday English. Keep reason and relationshipSummary under 15 words each. Never use technical language; avoid terms such as semantic, syntax, or morphology. ${input.feedbackLanguage === "zh-CN" ? "Write reason and relationshipSummary in concise Simplified Chinese, while correctedSentence stays in English." : "Write reason and relationshipSummary in English."} Do not include markdown, commentary, or reasoning outside the JSON object.` },
             { role: "user", content: JSON.stringify({ ...input, task: "Check the English sentence strictly and verify every target word is used meaningfully." }) },
           ],
         }),
@@ -188,9 +202,9 @@ function toEvaluationResult(parsed: ProviderEvaluation, input: EvaluationRequest
     // accidentally labels an understandable sentence as valid.
     valid: parsed.valid === true && !correctionChangesMeaningfulText,
     confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5)),
-    reason: typeof parsed.reason === "string" ? parsed.reason : "The evaluator checked your sentence.",
+    reason: typeof parsed.reason === "string" ? parsed.reason : input.feedbackLanguage === "zh-CN" ? "已经检查了你的句子。" : "The evaluator checked your sentence.",
     correctedSentence,
-    relationshipSummary: typeof parsed.relationshipSummary === "string" ? parsed.relationshipSummary : "The target words were considered together.",
+    relationshipSummary: typeof parsed.relationshipSummary === "string" ? parsed.relationshipSummary : input.feedbackLanguage === "zh-CN" ? "已经一起检查了目标词。" : "The target words were considered together.",
     source: "ai", provisional: false,
   };
   // Low-confidence results remain playable but are clearly marked as provisional.
@@ -203,11 +217,11 @@ export async function POST(request: Request) {
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const input = asRequest(body);
   const rules = evaluateRules(input);
-  if (rules) return NextResponse.json(rules);
+  if (rules) return NextResponse.json(localizeRuleResult(rules, input));
   // Agnes is primary; any configured fallback is tried when it is rate-limited,
   // unavailable, or returns an answer that cannot be parsed.
   const providers = configuredProviders();
-  if (!providers.length) return NextResponse.json(rulesFallback(input));
+  if (!providers.length) return NextResponse.json(localizeRuleResult(rulesFallback(input), input));
 
   const started = Date.now();
   let receivedAnswer = false;
@@ -230,5 +244,5 @@ export async function POST(request: Request) {
   const reason = receivedAnswer
     ? "The semantic evaluator replied, but its answer format could not be read. Your sentence passed the instant checks and is counted provisionally."
     : "The semantic evaluator was unavailable before returning an answer. Your sentence passed the instant checks and is counted provisionally.";
-  return NextResponse.json({ ...rulesFallback(input), reason });
+  return NextResponse.json(localizeRuleResult({ ...rulesFallback(input), reason }, input));
 }

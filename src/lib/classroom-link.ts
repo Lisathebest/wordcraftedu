@@ -1,4 +1,4 @@
-import type { Level, VocabularyWord } from "@/types/game";
+import type { LanguageCheckMode, Level, VocabularyWord } from "@/types/game";
 
 export type ClassroomLearnerLevel = "starter" | "developing" | "stretch" | "mixed";
 export type ClassroomWordFocus = "everyday" | "school" | "community" | "travel" | "mixed";
@@ -15,6 +15,7 @@ export interface ClassroomLinkPayload {
   learnerLevel: ClassroomLearnerLevel;
   wordFocus: ClassroomWordFocus;
   durationMinutes: number;
+  languageCheckMode: LanguageCheckMode;
   customWords: SharedVocabularyWord[];
 }
 
@@ -42,6 +43,7 @@ export function createClassroomLink(origin: string, payload: ClassroomLinkPayloa
     l: payload.learnerLevel,
     f: payload.wordFocus,
     d: payload.durationMinutes,
+    c: payload.languageCheckMode,
     w: sharedWords.map((word) => ({
       i: word.id,
       w: word.word,
@@ -71,6 +73,7 @@ export function readClassroomLink(value: string): ClassroomLinkPayload | null {
     const learnerLevel = parsed.l;
     const wordFocus = parsed.f;
     const durationMinutes = Number(parsed.d);
+    const languageCheckMode: LanguageCheckMode = parsed.c === "fast" ? "fast" : "ai";
     if (!isLearnerLevel(learnerLevel) || !isWordFocus(wordFocus) || ![5, 8, 12, 15].includes(durationMinutes)) return null;
     const customWords = Array.isArray(parsed.w) ? parsed.w.slice(0, MAX_SHARED_WORDS).flatMap((item) => {
       if (!item || typeof item !== "object") return [];
@@ -83,7 +86,7 @@ export function readClassroomLink(value: string): ClassroomLinkPayload | null {
       const image = cleanImage(raw.m);
       return [{ id, word, chinese, level, image }];
     }) : [];
-    return { learnerLevel, wordFocus, durationMinutes, customWords };
+    return { learnerLevel, wordFocus, durationMinutes, languageCheckMode, customWords };
   } catch {
     return null;
   }

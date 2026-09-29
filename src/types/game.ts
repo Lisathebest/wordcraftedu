@@ -2,6 +2,7 @@ export type Level = "L1" | "L2" | "L3";
 export type MatchMode = "solo" | "local" | "student";
 export type MatchStatus = "setup" | "playing" | "finished";
 export type InputMethod = "text" | "voice";
+export type LanguageCheckMode = "fast" | "ai";
 export type AbilityId = "preview" | "shield" | "exchange" | "social";
 
 export interface VocabularyWord {
@@ -100,7 +101,8 @@ export interface EvaluationRequest {
   sentence: string;
   inputMethod: InputMethod;
   targetWords: string[];
-  gradeBand: "5-6" | "7-9";
+  gradeBand: "4" | "5-6" | "7-9";
+  feedbackLanguage?: "en" | "zh-CN";
 }
 
 export interface EvaluationResult {

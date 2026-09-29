@@ -1,5 +1,5 @@
 import type { MatchState, VocabularyWord } from "@/types/game";
-import type { MatchMode } from "@/types/game";
+import type { LanguageCheckMode, MatchMode } from "@/types/game";
 import { normalizeClassFolders, type ClassFolder } from "@/lib/classroom-folders";
 import { ILLUSTRATION_STYLE_VERSION, isGeneratedIllustration, normalizeImportedWordImage, PENDING_WORD_IMAGE } from "@/lib/illustration";
 
@@ -9,7 +9,7 @@ const SETTINGS_KEY = "vocabulary-builder.settings";
 const CUSTOM_WORDS_KEY = "vocabulary-builder.custom-words";
 const CLASS_FOLDERS_KEY = "vocabulary-builder.class-folders";
 
-export interface SavedSettings { mode: MatchMode; names: string[]; }
+export interface SavedSettings { mode: MatchMode; names: string[]; languageCheckMode?: LanguageCheckMode; }
 
 function normalizeStoredWord(word: VocabularyWord): VocabularyWord {
   const legacy = word.word.match(/^\s*([^,\uFF0C;]+?)\s*[,\uFF0C;]\s*(.*?)\s*[,\uFF0C;]\s*(L[123])\s*$/i);
