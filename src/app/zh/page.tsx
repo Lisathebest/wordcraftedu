@@ -235,7 +235,7 @@ export default function ChineseLearningPage() {
 
     {phase === "setup" && <div className={styles.setupShell}>
       <section className={styles.hero}>
-        <div><span className={styles.kicker}>给2-5年级学生的想象乐园</span><h1>先想中文，<br/><em>再搭一座英文句子桥。</em></h1><p>选词、写下想表达的意思，再用动词、时态和句型提示完成英文句子。用对词语，就能点亮 Bingo 格子。</p></div>
+        <div><span className={styles.kicker}>给2-5年级学生的想象乐园</span><h1>先想中文，<br/><em>再一步步搭出英文句子。</em></h1><p>选词、写下想表达的意思，再用动词、时态和句型提示完成英文句子。用对词语，就能点亮 Bingo 格子。</p></div>
         <div className={styles.bridgePreview} aria-label="学习流程"><span>中文想法</span><i>→</i><span>语言提示</span><i>→</i><span>英文句子</span></div>
       </section>
 

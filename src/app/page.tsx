@@ -488,10 +488,15 @@ export default function Home() {
     } finally { setGeneratingWordId(null); }
   };
 
-  const generateIllustrationBatch = async () => {
+  const generateIllustrationBatch = async (wordIds?: string[]) => {
     if (generatingWordId || illustrationBatch) return;
-    const queue = customWords.filter((word) => !isGeneratedIllustration(word.image));
-    if (!queue.length) { setStudioNotice("All your words already have illustrations."); return; }
+    const selectedIds = wordIds ? new Set(wordIds) : null;
+    const queue = customWords.filter((word) => selectedIds ? selectedIds.has(word.id) : !isGeneratedIllustration(word.image));
+    if (!queue.length) {
+      setStudioNotice(selectedIds ? "Choose at least one word to redraw." : "All your words already have illustrations.");
+      return;
+    }
+    const isSelectedRedraw = selectedIds !== null;
     batchReminderArmedRef.current = false;
     setBatchReminderArmed(false);
     const failed: string[] = [];
@@ -511,7 +516,9 @@ export default function Home() {
     };
 
     updateBatchProgress();
-    setStudioNotice(`Batch started: drawing up to ${concurrency} illustrations at once. You can switch tabs while it runs.`);
+    setStudioNotice(isSelectedRedraw
+      ? `Redrawing ${queue.length} selected ${queue.length === 1 ? "illustration" : "illustrations"}. Up to ${concurrency} at once.`
+      : `Batch started: drawing up to ${concurrency} illustrations at once. You can switch tabs while it runs.`);
 
     const runWorker = async () => {
       while (true) {
@@ -539,8 +546,10 @@ export default function Home() {
     const remaining = queue.length - completed - failed.length;
     const detail = failureDetails[0] ? ` First issue: ${failureDetails[0]}` : "";
     setStudioNotice(failed.length
-      ? `${completed} illustrated. ${failed.length} failed${remaining ? `, ${remaining} still waiting` : ""}. Retry the missing art when you are ready.${detail}`
-      : `${completed} illustrations are ready for your next round.`);
+      ? `${completed} illustrated. ${failed.length} failed${remaining ? `, ${remaining} still waiting` : ""}. Retry the ${isSelectedRedraw ? "selected" : "missing"} art when you are ready.${detail}`
+      : isSelectedRedraw
+        ? `${completed} selected ${completed === 1 ? "illustration was" : "illustrations were"} redrawn and saved.`
+        : `${completed} illustrations are ready for your next round.`);
     notifyBatchComplete(completed, failed);
     batchReminderArmedRef.current = false;
     setBatchReminderArmed(false);
@@ -873,7 +882,7 @@ type SetupProps = {
   onImport: (raw: string) => void;
   onImportFile: (file: File | undefined) => void;
   onGenerate: (wordId: string) => void;
-  onGenerateBatch: () => void;
+  onGenerateBatch: (wordIds?: string[]) => void;
   onRequestBatchReminder: () => void | Promise<void>;
   batchReminderArmed: boolean;
   onDelete: (wordId: string) => void;
@@ -988,7 +997,7 @@ type IllustrationStudioProps = {
   onImport: (raw: string) => void;
   onImportFile: (file: File | undefined) => void;
   onGenerate: (wordId: string) => void;
-  onGenerateBatch: () => void;
+  onGenerateBatch: (wordIds?: string[]) => void;
   onRequestBatchReminder: () => void | Promise<void>;
   batchReminderArmed: boolean;
   onDelete: (wordId: string) => void;
@@ -997,7 +1006,17 @@ type IllustrationStudioProps = {
 };
 
 function IllustrationStudio({ customWords, studioDraft, setStudioDraft, studioNotice, importInputRef, onImport, onImportFile, onGenerate, onGenerateBatch, onRequestBatchReminder, batchReminderArmed, onDelete, generatingWordId, illustrationBatch }: IllustrationStudioProps) {
+  const [selectedWordIds, setSelectedWordIds] = useState<string[]>([]);
   const [batchClock, setBatchClock] = useState(() => Date.now());
+  const selectedWords = customWords.filter((word) => selectedWordIds.includes(word.id));
+  const allWordsSelected = customWords.length > 0 && selectedWords.length === customWords.length;
+  const isBusy = Boolean(generatingWordId || illustrationBatch);
+
+  const toggleAllWords = () => setSelectedWordIds(allWordsSelected ? [] : customWords.map((word) => word.id));
+  const toggleWord = (wordId: string, checked: boolean) => setSelectedWordIds((current) => (
+    checked ? [...new Set([...current, wordId])] : current.filter((id) => id !== wordId)
+  ));
+
   useEffect(() => {
     if (!illustrationBatch) return;
     setBatchClock(Date.now());
@@ -1010,7 +1029,7 @@ function IllustrationStudio({ customWords, studioDraft, setStudioDraft, studioNo
   const activeWords = illustrationBatch?.active.map((id) => customWords.find((word) => word.id === id)?.word).filter(Boolean) || [];
 
   return <section className="panel illustration-studio">
-    <div className="studio-heading"><div><div className="eyebrow">Teacher word studio · 词汇插画工作室</div><h2>Bring your own vocabulary to life</h2><p className="subtle">Add your words, then make the whole set ready in one pass. Your set stays on this device.</p></div><div className="studio-count-wrap"><span className="studio-count">{customWords.length}<small>your words</small></span><div className="batch-action"><button className="btn btn-primary batch-button" disabled={!missingCount || illustrationBatch !== null || generatingWordId !== null} onClick={onGenerateBatch}>{illustrationBatch ? `${illustrationBatch.processed}/${illustrationBatch.total} processed` : "Generate all missing art"}</button><small className="batch-estimate-hint">{illustrationBatch ? "Live estimate shown below" : missingCount ? `Estimated ${formatBatchEstimate(missingCount)} · up to ${Math.min(ILLUSTRATION_BATCH_CONCURRENCY, missingCount)} at once` : "All imported words are illustrated"}</small></div></div></div>
+    <div className="studio-heading"><div><div className="eyebrow">Teacher word studio · 词汇插画工作室</div><h2>Bring your own vocabulary to life</h2><p className="subtle">Add your words, then make the whole set ready in one pass. Your set stays on this device.</p></div><div className="studio-count-wrap"><span className="studio-count">{customWords.length}<small>your words</small></span><div className="batch-action"><button className="btn btn-primary batch-button" disabled={!missingCount || illustrationBatch !== null || generatingWordId !== null} onClick={() => onGenerateBatch()}>{illustrationBatch ? `${illustrationBatch.processed}/${illustrationBatch.total} processed` : "Generate all missing art"}</button><small className="batch-estimate-hint">{illustrationBatch ? "Live estimate shown below" : missingCount ? `Estimated ${formatBatchEstimate(missingCount)} · up to ${Math.min(ILLUSTRATION_BATCH_CONCURRENCY, missingCount)} at once` : "All imported words are illustrated"}</small></div></div></div>
     {illustrationBatch && <div className="batch-progress-panel" aria-live="polite" aria-label="Illustration batch progress">
       <div className="batch-progress-header"><div><b>Batch drawing in progress</b><small>Each image can take up to 1 minute. Three images can render at once, and results save as they arrive.</small></div><div className="batch-progress-score"><strong>{progressPercent}%</strong><span>{illustrationBatch.completed} ready{illustrationBatch.failed.length ? ` · ${illustrationBatch.failed.length} failed` : ""}</span></div></div>
       <div className="batch-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={illustrationBatch.total} aria-valuenow={illustrationBatch.processed} aria-label={`${illustrationBatch.processed} of ${illustrationBatch.total} illustrations processed`}><span style={{ width: `${progressPercent}%` }} /></div>
@@ -1024,7 +1043,16 @@ function IllustrationStudio({ customWords, studioDraft, setStudioDraft, studioNo
         <div className="paste-row"><textarea className="studio-textarea" value={studioDraft} onChange={(event) => setStudioDraft(event.target.value)} placeholder={"Or paste words here…\ncompass, direction finder, L1\ncurious, interested in learning, L2"} /><button className="btn btn-primary" disabled={!studioDraft.trim()} onClick={() => onImport(studioDraft)}>Add words</button></div>
         {studioNotice && <div className="studio-notice" role="status">{studioNotice}</div>}
         <div className="studio-label studio-label-spaced">Your imported set {customWords.length > 0 && <span>{customWords.filter((word) => isGeneratedIllustration(word.image)).length}/{customWords.length} illustrated</span>}</div>
-        {customWords.length ? <div className="custom-word-list">{customWords.map((word) => { const isGenerated = isGeneratedIllustration(word.image); const active = generatingWordId === word.id || Boolean(illustrationBatch?.active.includes(word.id)); return <div className={`custom-word-row ${active ? "is-drawing" : ""}`} key={word.id}><img src={word.image || PENDING_WORD_IMAGE} alt=""/><div className="custom-word-copy"><b>{word.word}</b><small>{word.chinese || "No meaning provided"} · {word.level}</small></div><span className={`art-status ${isGenerated ? "ready" : "waiting"}`}>{active ? "Drawing…" : isGenerated ? "Illustrated" : "Needs art"}</span><button className="btn btn-mint art-button" disabled={generatingWordId !== null || illustrationBatch !== null} onClick={() => onGenerate(word.id)}>{active ? "Drawing…" : isGenerated ? "Redraw" : "Generate art"}</button><button className="delete-word" aria-label={`Delete ${word.word}`} disabled={generatingWordId !== null || illustrationBatch !== null} onClick={() => onDelete(word.id)}>Delete</button></div>; })}</div> : <div className="studio-empty"><span>✎</span><div><b>Start by adding your words.</b><small>Use CSV, TXT, or JSON, or paste one word per line. Then generate the missing art for the set.</small></div></div>}
+        {customWords.length ? <>
+          <div className="studio-selection-bar">
+            <div className="studio-selection-copy"><span className="studio-selection-mark" aria-hidden="true">✦</span><span><b>{selectedWords.length ? `${selectedWords.length} selected` : "Select words to redraw"}</b><small>Choose several at once; existing pictures will be replaced.</small></span></div>
+            <div className="studio-selection-actions">
+              <button className="btn btn-ghost studio-select-all" type="button" disabled={isBusy} onClick={toggleAllWords}>{allWordsSelected ? "Clear selection" : "Select all"}</button>
+              <button className="btn btn-mint studio-redraw-selected" type="button" disabled={!selectedWords.length || isBusy} onClick={() => onGenerateBatch(selectedWords.map((word) => word.id))}>Redraw selected{selectedWords.length ? ` · ${selectedWords.length}` : ""}</button>
+            </div>
+          </div>
+          <div className="custom-word-list">{customWords.map((word) => { const isGenerated = isGeneratedIllustration(word.image); const active = generatingWordId === word.id || Boolean(illustrationBatch?.active.includes(word.id)); return <div className={`custom-word-row ${selectedWordIds.includes(word.id) ? "is-selected" : ""} ${active ? "is-drawing" : ""}`} key={word.id}><label className="custom-word-select"><input type="checkbox" aria-label={`Select ${word.word} for redraw`} checked={selectedWordIds.includes(word.id)} disabled={isBusy} onChange={(event) => toggleWord(word.id, event.target.checked)} /></label><img src={word.image || PENDING_WORD_IMAGE} alt=""/><div className="custom-word-copy"><b>{word.word}</b><small>{word.chinese || "No meaning provided"} · {word.level}</small></div><span className={`art-status ${isGenerated ? "ready" : "waiting"}`}>{active ? "Drawing…" : isGenerated ? "Illustrated" : "Needs art"}</span><button className="btn btn-mint art-button" disabled={isBusy} onClick={() => onGenerate(word.id)}>{active ? "Drawing…" : isGenerated ? "Redraw" : "Generate art"}</button><button className="delete-word" aria-label={`Delete ${word.word}`} disabled={isBusy} onClick={() => onDelete(word.id)}>Delete</button></div>; })}</div>
+        </> : <div className="studio-empty"><span>✎</span><div><b>Start by adding your words.</b><small>Use CSV, TXT, or JSON, or paste one word per line. Then generate the missing art for the set.</small></div></div>}
       </div>
     </div>
   </section>;
