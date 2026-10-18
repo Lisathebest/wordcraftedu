@@ -1,5 +1,6 @@
 import { abilityFloorForWord, abilityForWord, buildingImageForWord, fullVocabulary, recipes, vocabularyById } from "@/data/content";
 import type { AbilityId, EvaluationResult, MatchMode, MatchState, MatchSummary, PlayerState, Recipe } from "@/types/game";
+import { createBingoProgress, markBingoWords } from "@/lib/bingo";
 
 const MATCH_SECONDS = 8 * 60;
 const HAND_SIZE = 4;
@@ -12,14 +13,15 @@ export function recipeFor(words: string[]): Recipe | undefined {
     .sort((left, right) => right.reward - left.reward)[0];
 }
 
-function makePlayer(id: string, name: string): PlayerState {
-  return { id, name, hand: [], familiarity: {}, lastUsed: {}, structures: [], discoveredRecipes: [], score: 0, usedAbilities: [], shieldActive: false };
+function makePlayer(id: string, name: string, wordPool: string[]): PlayerState {
+  return { id, name, hand: [], bingo: createBingoProgress(wordPool), familiarity: {}, lastUsed: {}, structures: [], discoveredRecipes: [], score: 0, usedAbilities: [], shieldActive: false };
 }
 
 export function createMatch(mode: MatchMode, names: string[], seed = 7, wordPool = fullVocabulary.map((word) => word.id), durationMinutes = 8): MatchState {
-  const players = (mode === "solo" || mode === "student" ? [names[0] || "Builder"] : names).map((name, index) => makePlayer(`p${index + 1}`, name || `Player ${index + 1}`));
-  const usablePool = wordPool.length >= HAND_SIZE * players.length ? wordPool : fullVocabulary.map((word) => word.id);
-  const shuffled = seededShuffle(usablePool, seed);
+  const usablePool = [...new Set(wordPool.filter(Boolean))];
+  const roundPool = usablePool.length ? usablePool : fullVocabulary.map((word) => word.id);
+  const players = (mode === "solo" || mode === "student" ? [names[0] || "Builder"] : names).map((name, index) => makePlayer(`p${index + 1}`, name || `Player ${index + 1}`, roundPool));
+  const shuffled = seededShuffle(roundPool, seed);
   const wordOwnership: Record<string, string> = {};
   for (let round = 0; round < HAND_SIZE; round++) {
     for (const player of players) {
@@ -71,6 +73,9 @@ export function applyEvaluation(state: MatchState, sentence: string, targets: st
       owner.lastUsed[wordId] = now + targetIndex;
     }
   });
+
+  const roundWords = [...new Set([...next.players.flatMap((candidate) => candidate.hand), ...next.drawPile])];
+  player.bingo = markBingoWords(player.bingo || createBingoProgress(roundWords), targets, roundWords);
 
   const recipe = recipeFor(targets);
   let reward = (recipe?.reward ?? 2) + Math.max(0, targets.length - 1);

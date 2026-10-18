@@ -1,15 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { abilityCopy, buildingImageForWord, fullVocabulary, recipes, registerVocabularyWords, vocabularyById } from "@/data/content";
+import { fullVocabulary, registerVocabularyWords, vocabularyById } from "@/data/content";
+import { chineseVocabulary } from "@/data/chinese-vocabulary";
 import { makeClassFolder, parseClassFolderExport, removeClassFolder, serializeClassFolder, serializeClassFolderCsv, updateClassFolder, type ClassFolder } from "@/lib/classroom-folders";
 import { evaluateFast, evaluateRules, evaluationCacheKey } from "@/lib/evaluation";
-import { applyEvaluation, createMatch, coreWord, notePronunciation, recordGrammarMistake, summarize, tick, useAbility } from "@/lib/game-engine";
+import { applyEvaluation, createMatch, notePronunciation, recordGrammarMistake, summarize, tick } from "@/lib/game-engine";
 import { createClassroomLink, hydrateSharedWords, readClassroomLink, type ClassroomLearnerLevel, type ClassroomWordFocus } from "@/lib/classroom-link";
 import { ILLUSTRATION_STYLE_VERSION, isGeneratedIllustration, PENDING_WORD_IMAGE } from "@/lib/illustration";
-import { clearMatch, loadClassFolders, loadCustomWords, loadMatch, loadSettings, saveClassFolders, saveCustomWords, saveHistory, saveMatch, saveSettings } from "@/lib/storage";
-import type { AbilityId, EvaluationResult, InputMethod, LanguageCheckMode, Level, MatchMode, MatchState, PlayerState, VocabularyWord } from "@/types/game";
-import { RecipeBook } from "./recipe-book";
+import { clearMatch, loadClassFolders, loadCustomWords, loadHideImagesUntilClick, loadMatch, loadSettings, saveClassFolders, saveCustomWords, saveHideImagesUntilClick, saveHistory, saveMatch, saveSettings } from "@/lib/storage";
+import type { EvaluationResult, InputMethod, LanguageCheckMode, Level, MatchMode, MatchState, VocabularyWord } from "@/types/game";
+import { BingoBoard } from "@/app/bingo-board";
+import { FeedbackPanel } from "@/app/feedback-panel";
+import { WordImagePreview } from "@/app/word-image-preview";
 
 type Phase = "setup" | "playing" | "finished";
 type SentenceCheckMode = "auto" | "table";
@@ -53,6 +56,7 @@ const FOCUS_OPTIONS: { id: WordFocus; label: string }[] = [
   { id: "everyday", label: "Daily life" },
   { id: "travel", label: "Travel" },
 ];
+const COMMON_VERBS_BY_WORD = new Map(chineseVocabulary.map((item) => [item.word.toLowerCase(), item.verbs] as const));
 
 type IllustrationBatchState = {
   total: number;
@@ -133,6 +137,7 @@ export default function Home() {
   const [wordFocus, setWordFocus] = useState<WordFocus>("mixed");
   const [durationMinutes, setDurationMinutes] = useState(8);
   const [languageCheckMode, setLanguageCheckMode] = useState<LanguageCheckMode>("fast");
+  const [hideImagesUntilClick, setHideImagesUntilClick] = useState(false);
   const [customWords, setCustomWords] = useState<VocabularyWord[]>([]);
   const [illustrationBatch, setIllustrationBatch] = useState<IllustrationBatchState | null>(null);
   const [batchReminderArmed, setBatchReminderArmed] = useState(false);
@@ -164,6 +169,7 @@ export default function Home() {
   const [sentence, setSentence] = useState("");
   const [inputMethod, setInputMethod] = useState<InputMethod>("text");
   const [revealedDefinitions, setRevealedDefinitions] = useState<Set<string>>(() => new Set());
+  const [imagePreviewWord, setImagePreviewWord] = useState<VocabularyWord | null>(null);
   const [feedback, setFeedback] = useState<EvaluationResult | null>(null);
   const [feedbackSubmissionId, setFeedbackSubmissionId] = useState<string | null>(null);
   const [pendingReview, setPendingReview] = useState<{ result: EvaluationResult; sentence: string; targets: string[] } | null>(null);
@@ -171,9 +177,6 @@ export default function Home() {
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
-  const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
-  const [selectedFloor, setSelectedFloor] = useState(1);
-  const [abilityTargetId, setAbilityTargetId] = useState("");
   const recognition = useRef<SpeechRecognitionLike | null>(null);
   const voiceActive = useRef(false);
   const voiceFinalText = useRef("");
@@ -216,7 +219,7 @@ export default function Home() {
 
   const activePlayer = match?.players[match.activeSeat];
   const selectedLabels = selected.map((id) => vocabularyById[id]?.word).filter(Boolean).join(" + ");
-  const selectionLimit = activePlayer?.hand.length || 4;
+  const selectionLimit = 4;
   const activeFolder = classFolders.find((folder) => folder.id === activeFolderId) || null;
   const libraryWords = useMemo(() => uniqueVocabularyWords([
     ...fullVocabulary,
@@ -234,15 +237,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => () => stopVoice(), [stopVoice]);
-
-  useEffect(() => {
-    if (!activePlayer) return;
-    if (!selectedBuildingId || !activePlayer.structures.some((structure) => structure.id === selectedBuildingId)) {
-      setSelectedBuildingId(activePlayer.structures[0]?.id || null);
-      setSelectedFloor(1);
-      setAbilityTargetId("");
-    }
-  }, [activePlayer?.id, activePlayer?.structures.length, selectedBuildingId]);
 
   const clearDefinitionHold = useCallback(() => {
     if (definitionHoldTimer.current !== null) window.clearTimeout(definitionHoldTimer.current);
@@ -265,6 +259,7 @@ export default function Home() {
     }
     const settings = loadSettings();
     if (settings) { setMode(settings.mode); setNames(settings.names.length ? settings.names : names); setLanguageCheckMode(settings.languageCheckMode === "ai" ? "ai" : "fast"); }
+    setHideImagesUntilClick(loadHideImagesUntilClick());
     const restored = loadMatch();
     if (restored?.status === "playing" && restored.remainingSeconds > 0) { setMatch(restored); setPhase("playing"); }
     setStorageReady(true);
@@ -568,14 +563,14 @@ export default function Home() {
     let pool = explicitSetSelected
       ? [...new Set(selectedSet.map((item) => item.id))]
       : defaultLessonVocabulary(learnerLevel, wordFocus, mode === "local" ? 20 : 8).map((item) => item.id);
-    if (explicitSetSelected && pool.length < 4) {
-      const message = mode === "student" ? "This classroom link has fewer than four words. Ask your teacher to share a larger set." : "Add at least four words to this class folder before starting a round.";
+    if (explicitSetSelected && pool.length < 1) {
+      const message = mode === "student" ? "This classroom link has no words yet. Ask your teacher to share a vocabulary set." : "Add at least one word to this class folder before starting a round.";
       if (mode === "student") setStudentJoinNotice(message);
       else setFolderNotice(message);
       return;
     }
     const next = createMatch(mode, playerNames.length ? playerNames : ["Builder"], randomMatchSeed(), pool, durationMinutes);
-    stopVoice(); setVoiceStatus(null); setMatch(next); setPhase("playing"); setSelected([]); setSentence(""); setFeedback(null); setFeedbackSubmissionId(null); setPendingReview(null); setSentenceCheckMode("auto"); setSelectedBuildingId(null); setSelectedFloor(1); setAbilityTargetId("");
+    stopVoice(); setVoiceStatus(null); setMatch(next); setPhase("playing"); setSelected([]); setSentence(""); setFeedback(null); setFeedbackSubmissionId(null); setPendingReview(null); setSentenceCheckMode("auto");
   };
 
   const finishMatch = () => { if (match) { stopVoice(); const finished = { ...match, status: "finished" as const, remainingSeconds: 0 }; saveHistory(finished); setMatch(finished); setPhase("finished"); } };
@@ -654,17 +649,6 @@ export default function Home() {
 
   const countPendingPractice = () => { if (!pendingReview) return; commitResult({ ...pendingReview.result, valid: true, reason: `${pendingReview.result.reason} Counted as practice while the evaluator is unsure.` }, pendingReview.sentence, pendingReview.targets); };
   const retryPending = () => { setPendingReview(null); setFeedback(null); setFeedbackSubmissionId(null); };
-
-  const selectedStructure = activePlayer?.structures.find((structure) => structure.id === selectedBuildingId) || activePlayer?.structures[0];
-  const abilityNeedsTarget = selectedStructure?.ability === "social" || (selectedStructure?.ability === "exchange" && match?.mode === "local" && (match.players.length || 0) > 1);
-  const useSelectedAbility = () => {
-    if (!match || !activePlayer || !selectedStructure?.ability) return;
-    if (abilityNeedsTarget && !abilityTargetId) return;
-    const next = useAbility(match, activePlayer.id, selectedStructure.ability, abilityNeedsTarget ? abilityTargetId : undefined);
-    if (next === match) return;
-    setMatch(next);
-    setAbilityTargetId("");
-  };
 
   const speak = (word: string) => { if (typeof window !== "undefined" && "speechSynthesis" in window) { window.speechSynthesis.cancel(); const utterance = new SpeechSynthesisUtterance(word); utterance.rate = .78; window.speechSynthesis.speak(utterance); } setMatch((current) => current ? notePronunciation(current) : current); };
 
@@ -783,90 +767,50 @@ export default function Home() {
     startAttempt();
   };
 
-  if (phase === "setup") return <Setup mode={mode} setMode={selectMode} names={names} setNames={setNames} learnerLevel={learnerLevel} setLearnerLevel={setLearnerLevel} wordFocus={wordFocus} setWordFocus={setWordFocus} durationMinutes={durationMinutes} setDurationMinutes={setDurationMinutes} languageCheckMode={languageCheckMode} setLanguageCheckMode={setLanguageCheckMode} startMatch={startMatch} studentLink={studentLink} setStudentLink={(value) => { setStudentLink(value); setStudentJoined(false); setStudentJoinNotice(null); }} studentJoined={studentJoined} studentJoinNotice={studentJoinNotice} onJoinTeacherLink={() => applyClassroomLink(studentLink)} shareUrl={shareUrl} shareNotice={shareNotice} onCreateStudentLink={createStudentLink} onCopyStudentLink={copyStudentLink} customWords={customWords} linkedClassWords={linkedClassWords} classFolders={classFolders} activeFolder={activeFolder} selectedLibraryIds={selectedLibraryIds} folderNameDraft={folderNameDraft} setFolderNameDraft={setFolderNameDraft} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} libraryLevel={libraryLevel} setLibraryLevel={setLibraryLevel} libraryTopic={libraryTopic} setLibraryTopic={setLibraryTopic} folderNotice={folderNotice} folderFileInputRef={folderFileInputRef} libraryWords={libraryWords} onSelectFolder={selectClassFolder} onNewFolder={startNewClassFolder} onCreateFolder={createClassFolder} onSaveFolder={saveActiveClassFolder} onDeleteFolder={deleteActiveClassFolder} onToggleLibraryWord={(id) => setSelectedLibraryIds((current) => current.includes(id) ? current.filter((wordId) => wordId !== id) : [...current, id])} onSelectVisibleWords={(ids) => setSelectedLibraryIds((current) => [...new Set([...current, ...ids])])} onClearVisibleWords={(ids) => setSelectedLibraryIds((current) => current.filter((id) => !ids.includes(id)))} onImportFolder={importClassFolder} onExportFolder={exportActiveClassFolder} studioDraft={studioDraft} setStudioDraft={setStudioDraft} studioNotice={studioNotice} importInputRef={importInputRef} onImport={importVocabulary} onImportFile={importFile} onGenerate={generateIllustration} onGenerateBatch={generateIllustrationBatch} onRequestBatchReminder={requestBatchReminder} batchReminderArmed={batchReminderArmed} onDelete={deleteCustomWord} generatingWordId={generatingWordId} illustrationBatch={illustrationBatch} />;
+  if (phase === "setup") return <Setup mode={mode} setMode={selectMode} names={names} setNames={setNames} learnerLevel={learnerLevel} setLearnerLevel={setLearnerLevel} wordFocus={wordFocus} setWordFocus={setWordFocus} durationMinutes={durationMinutes} setDurationMinutes={setDurationMinutes} languageCheckMode={languageCheckMode} setLanguageCheckMode={setLanguageCheckMode} hideImagesUntilClick={hideImagesUntilClick} onHideImagesUntilClickChange={(hidden) => { setHideImagesUntilClick(hidden); saveHideImagesUntilClick(hidden); }} startMatch={startMatch} studentLink={studentLink} setStudentLink={(value) => { setStudentLink(value); setStudentJoined(false); setStudentJoinNotice(null); }} studentJoined={studentJoined} studentJoinNotice={studentJoinNotice} onJoinTeacherLink={() => applyClassroomLink(studentLink)} shareUrl={shareUrl} shareNotice={shareNotice} onCreateStudentLink={createStudentLink} onCopyStudentLink={copyStudentLink} customWords={customWords} linkedClassWords={linkedClassWords} classFolders={classFolders} activeFolder={activeFolder} selectedLibraryIds={selectedLibraryIds} folderNameDraft={folderNameDraft} setFolderNameDraft={setFolderNameDraft} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} libraryLevel={libraryLevel} setLibraryLevel={setLibraryLevel} libraryTopic={libraryTopic} setLibraryTopic={setLibraryTopic} folderNotice={folderNotice} folderFileInputRef={folderFileInputRef} libraryWords={libraryWords} onSelectFolder={selectClassFolder} onNewFolder={startNewClassFolder} onCreateFolder={createClassFolder} onSaveFolder={saveActiveClassFolder} onDeleteFolder={deleteActiveClassFolder} onToggleLibraryWord={(id) => setSelectedLibraryIds((current) => current.includes(id) ? current.filter((wordId) => wordId !== id) : [...current, id])} onSelectVisibleWords={(ids) => setSelectedLibraryIds((current) => [...new Set([...current, ...ids])])} onClearVisibleWords={(ids) => setSelectedLibraryIds((current) => current.filter((id) => !ids.includes(id)))} onImportFolder={importClassFolder} onExportFolder={exportActiveClassFolder} studioDraft={studioDraft} setStudioDraft={setStudioDraft} studioNotice={studioNotice} importInputRef={importInputRef} onImport={importVocabulary} onImportFile={importFile} onGenerate={generateIllustration} onGenerateBatch={generateIllustrationBatch} onRequestBatchReminder={requestBatchReminder} batchReminderArmed={batchReminderArmed} onDelete={deleteCustomWord} generatingWordId={generatingWordId} illustrationBatch={illustrationBatch} />;
   if (phase === "finished" && match) return <Summary match={match} restart={() => { clearMatch(); setPhase("setup"); setMatch(null); }} />;
   if (!match || !activePlayer) return null;
 
   const currentAttempt = feedbackSubmissionId ? match.submissions.find((submission) => submission.id === feedbackSubmissionId) : null;
 
-  const loadFormula = (ingredients: [string, string]) => {
-    setSelected([...ingredients]);
-    setFeedback(null);
-    setFeedbackSubmissionId(null);
-    setPendingReview(null);
-    const input = sentenceInputRef.current;
-    if (!input) return;
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    input.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
-    input.focus({ preventScroll: true });
-  };
-
-  const visitBuilding = (buildingName: string) => {
-    const building = activePlayer.structures.find((structure) => structure.name === buildingName);
-    if (!building) return;
-    setSelectedBuildingId(building.id);
-    setSelectedFloor(1);
-    const panel = document.querySelector<HTMLElement>(".building-panel");
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    panel?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
-  };
-
-  return <main className="app-shell"><Header /><div className="content">
+  return <><main className="app-shell"><Header /><div className="content">
     <div className="game-top"><div className="game-title"><div className="eyebrow">{match.mode === "student" ? "Student table" : match.mode === "solo" ? "Individual practice" : "Team rotation"}</div><h2>{activePlayer.name}'s turn</h2></div><div className={`timer ${match.remainingSeconds < 90 ? "warning" : ""}`}><span className="timer-dot" />{formatTime(match.remainingSeconds)}</div><button className="btn btn-ghost" onClick={finishMatch}>End round</button></div>
-    {match.mode === "local" && <div className="player-tabs">{match.players.map((player, index) => <button key={player.id} className={`player-tab ${index === match.activeSeat ? "active" : ""}`} onClick={() => { stopVoice(); setVoiceStatus(null); setSelected([]); setSentence(""); setFeedback(null); setFeedbackSubmissionId(null); setPendingReview(null); setSentenceCheckMode("auto"); setSelectedBuildingId(null); setSelectedFloor(1); setAbilityTargetId(""); setMatch({ ...match, activeSeat: index }); }}>{player.name} · {player.score} pts</button>)}</div>}
-    <div className="game-grid"><section className="panel workspace"><div className="workspace-head"><div><div className="eyebrow">Your word shelf</div><h3>Choose ingredients</h3><div className="subtle">Select one word for a focused build, or several words to make a richer sentence. Known recipes can hide inside a larger combination. Press and hold a card to reveal its meaning.</div></div><span className="pill">{selected.length}/{selectionLimit} selected</span></div>
-      <div className="hand">{activePlayer.hand.map((id) => { const item = vocabularyById[id]; const familiarity = activePlayer.familiarity[id] || 0; const definitionRevealed = revealedDefinitions.has(id); const toggle = () => setSelected((current) => current.includes(id) ? current.filter((word) => word !== id) : current.length < selectionLimit ? [...current, id] : current); return <div key={id} className={`word-card ${selected.includes(id) ? "selected" : ""}`} role="button" tabIndex={0} aria-label={`${item.word}. ${definitionRevealed ? `${item.chinese}, ${item.level}` : "Meaning hidden. Press and hold to reveal."}`} onClick={toggle} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); } }} onPointerDown={(event) => startDefinitionHold(event, id)} onPointerUp={endDefinitionHold} onPointerCancel={endDefinitionHold} onPointerLeave={endDefinitionHold} onContextMenu={(event) => event.preventDefault()}><button className="speak" title={`Hear ${item.word}`} onClick={(event) => { event.stopPropagation(); speak(item.word); }}>🔊</button><img src={item.image} alt=""/><b>{item.word}</b><small className={`word-definition ${definitionRevealed ? "revealed" : "hidden"}`}>{definitionRevealed ? `${item.chinese} · ${item.level}` : "Press and hold to reveal"}</small><span className="familiarity" aria-label={`${familiarity} familiarity`}>{[0,1,2,3,4].map((dot) => <i key={dot} className={dot < Math.min(5, familiarity) ? "on" : ""} />)}</span></div>; })}</div>
+    {match.mode === "local" && <div className="player-tabs">{match.players.map((player, index) => <button key={player.id} className={`player-tab ${index === match.activeSeat ? "active" : ""}`} onClick={() => { stopVoice(); setVoiceStatus(null); setSelected([]); setSentence(""); setFeedback(null); setFeedbackSubmissionId(null); setPendingReview(null); setSentenceCheckMode("auto"); setMatch({ ...match, activeSeat: index }); }}>{player.name} · {player.bingo.bingos} Bingo</button>)}</div>}
+    <div className="game-grid"><section className="panel workspace"><div className="workspace-head"><div><div className="eyebrow">Your word shelf</div><h3>Choose your words</h3><div className="subtle">Choose words and use them in a complete English sentence to light the matching squares. Press and hold to reveal a meaning; double-click to view a hidden picture.</div><div className="bingo-speed-tip"><span aria-hidden="true">⚡</span><p>Want to get Bingo faster? Use as many selected words as you can in one correct sentence to clear more words from your shelf and light multiple squares at once.</p></div></div><span className="pill">{selected.length}/{selectionLimit} selected</span></div>
+      {!activePlayer.hand.length && <div className="hand-empty">No words left on your shelf. Your Bingo board shows the words you used this round.</div>}
+      <div className="hand">{activePlayer.hand.map((id) => {
+        const item = vocabularyById[id];
+        const commonVerbs = COMMON_VERBS_BY_WORD.get(item.word.toLowerCase());
+        const usefulCollocations = item.collocations.filter((phrase) => phrase.toLowerCase() !== item.word.toLowerCase() && !/^(use|learn)\s+/i.test(phrase));
+        const familiarity = activePlayer.familiarity[id] || 0;
+        const definitionRevealed = revealedDefinitions.has(id);
+        const toggle = () => setSelected((current) => current.includes(id) ? current.filter((word) => word !== id) : current.length < selectionLimit ? [...current, id] : current);
+        return <div key={id} className={`word-card ${selected.includes(id) ? "selected" : ""}`} role="button" tabIndex={0}
+          aria-label={`${item.word}. ${hideImagesUntilClick ? "Picture hidden. Double-click to view picture. " : ""}${definitionRevealed ? `${item.chinese}, ${item.level}` : "Meaning hidden. Press and hold to reveal."}`}
+          onClick={(event) => { if (hideImagesUntilClick && event.detail > 1) return; toggle(); }}
+          onDoubleClick={() => { if (hideImagesUntilClick) setImagePreviewWord(item); }}
+          onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); } }}
+          onPointerDown={(event) => startDefinitionHold(event, id)} onPointerUp={endDefinitionHold} onPointerCancel={endDefinitionHold} onPointerLeave={endDefinitionHold} onContextMenu={(event) => event.preventDefault()}>
+          <button className="speak" title={`Hear ${item.word}`} onClick={(event) => { event.stopPropagation(); speak(item.word); }} onDoubleClick={(event) => event.stopPropagation()}>🔊</button>
+          {hideImagesUntilClick ? <span className="word-image-hidden" aria-hidden="true">▧</span> : <img src={item.image} alt=""/>}
+          <b>{item.word}</b>
+          <small className={`word-definition ${definitionRevealed ? "revealed" : "hidden"}`}>{definitionRevealed ? `${item.chinese} · ${item.level}` : "Press and hold to reveal"}</small>
+          <span className="familiarity" aria-label={`${familiarity} familiarity`}>{[0,1,2,3,4].map((dot) => <i key={dot} className={dot < Math.min(5, familiarity) ? "on" : ""} />)}</span>
+          {commonVerbs && <details className="word-card-hints" onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()} onPointerUp={(event) => event.stopPropagation()}><summary>Common verbs</summary><p>{commonVerbs.join(" · ")}</p></details>}
+          {usefulCollocations.length > 0 && <details className="word-card-hints word-card-collocations" onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()} onPointerUp={(event) => event.stopPropagation()}><summary>Common collocations</summary><p>{usefulCollocations.join(" · ")}</p></details>}
+        </div>;
+      })}</div>
       <div className="sentence-area">
         <div className="sentence-heading-row"><div><div className="eyebrow">Make it meaningful</div><p className="subtle">Use <strong>{selectedLabels || "your selected words"}</strong> in a complete English sentence.</p></div><span className={`lesson-check-pill ${sentenceCheckMode === "table" ? "table" : languageCheckMode}`}>{sentenceCheckMode === "table" ? "✓ Table approval" : languageCheckMode === "ai" ? "✦ AI Language Check" : "⚡ Fast Check"}</span></div>
         <textarea ref={sentenceInputRef} className="sentence-box" value={sentence} onChange={(event) => { setSentence(event.target.value); setInputMethod("text"); setVoiceStatus(null); }} placeholder="Example: I bought a pastry, a cold beverage, and a textbook at the cafeteria." />
-        {inputMethod === "voice" && <p className="voice-hint">Voice → text writes the transcript into this box. You can edit it before crafting.</p>}
+        {inputMethod === "voice" && <p className="voice-hint">Voice → text writes the transcript into this box. You can edit it before submitting.</p>}
         {match.mode === "local" && <div className="check-mode" role="group" aria-label="Choose who checks the sentence"><div className="check-mode-heading"><span className="eyebrow">Team check</span><small>Choose how this table approves the sentence.</small></div><div className="check-mode-options"><button type="button" className={`check-mode-option ${sentenceCheckMode === "auto" ? "active" : ""}`} aria-pressed={sentenceCheckMode === "auto"} disabled={isEvaluating} onClick={() => setSentenceCheckMode("auto")}><span>{languageCheckMode === "ai" ? "✦ AI check" : "⚡ Fast check"}</span><small>{languageCheckMode === "ai" ? "Grammar + meaning review" : "Instant structure check"}</small></button><button type="button" className={`check-mode-option ${sentenceCheckMode === "table" ? "active" : ""}`} aria-pressed={sentenceCheckMode === "table"} disabled={isEvaluating} onClick={() => setSentenceCheckMode("table")}><span>✓ Table approves</span><small>Friends decide together</small></button></div>{sentenceCheckMode === "table" && <p className="check-mode-note">Everyone at the table agrees this sentence works, then pass it together.</p>}</div>}
-        <div className="action-row"><button className="btn btn-primary" disabled={!selected.length || !sentence.trim() || isEvaluating} onClick={sentenceCheckMode === "table" ? approveByTable : evaluate}>{isEvaluating ? "AI checking · ~25 sec…" : sentenceCheckMode === "table" ? "Pass with table approval" : selected.length > 1 ? `Craft with ${selected.length} words` : "Build with this word"}</button><button className={`btn ${isListening ? "btn-coral" : "btn-mint"}`} aria-pressed={isListening} onClick={isListening ? stopVoice : startVoice}>{isListening ? "Listening… tap to stop" : "🎙 Voice → text"}</button><span className="microcopy">{voiceStatus || (inputMethod === "voice" ? "Voice transcript ready" : "Text input")} · select up to {selectionLimit} words</span></div>
+        <div className="action-row"><button className="btn btn-primary" disabled={!selected.length || !sentence.trim() || isEvaluating} onClick={sentenceCheckMode === "table" ? approveByTable : evaluate}>{isEvaluating ? "AI checking · ~25 sec…" : sentenceCheckMode === "table" ? "Pass with table approval" : selected.length > 1 ? `Use ${selected.length} words` : "Use this word"}</button><button className={`btn ${isListening ? "btn-coral" : "btn-mint"}`} aria-pressed={isListening} onClick={isListening ? stopVoice : startVoice}>{isListening ? "Listening… tap to stop" : "🎙 Voice → text"}</button><span className="microcopy">{voiceStatus || (inputMethod === "voice" ? "Voice transcript ready" : "Text input")} · select up to {selectionLimit} words</span></div>
         {isEvaluating && <div className="ai-wait" role="status" aria-live="polite"><span className="ai-wait-spinner" aria-hidden="true"/><div><strong>AI Language Check is reading the whole sentence.</strong><small>This usually takes about 25 seconds. Keep this page open.</small></div></div>}
         {feedback && <div className={`feedback ${feedback.valid ? "" : "bad"}`}><strong>{feedback.valid ? "✨ That works" : "Not quite yet"}</strong><p>{feedback.reason}</p>{!feedback.valid && !pendingReview && currentAttempt && <div className="grammar-mistake-row"><button className="btn btn-ghost" disabled={Boolean(currentAttempt.grammarMistake)} onClick={() => setMatch((current) => current ? recordGrammarMistake(current, currentAttempt.id) : current)}>{currentAttempt.grammarMistake ? "✓ Grammar mistake recorded" : "＋ Record grammar mistake"}</button><span>Type it again above when you are ready.</span></div>}{feedback.relationshipSummary && <p className="subtle">{feedback.relationshipSummary}</p>}{feedback.provisional && <div className="provisional">Could not complete the AI check · count it as practice or edit and retry.</div>}{pendingReview && <div className="action-row"><button className="btn btn-mint" onClick={countPendingPractice}>Count as practice</button><button className="btn btn-ghost" onClick={retryPending}>Edit and retry</button></div>}</div>}
       </div>
-    </section><aside className="side-stack"><section className="panel side-card"><h3>Your world</h3><div className="score-row"><span>World score</span><span className="score">{activePlayer.score}</span></div><div className="score-row"><span>Recipes discovered</span><span className="score">{activePlayer.discoveredRecipes.length}/{recipes.length}</span></div><div className="score-row"><span>Core word</span><span className="score">{coreWord(activePlayer) ? vocabularyById[coreWord(activePlayer)]?.word : "—"}</span></div></section><section className="panel side-card"><h3>How to play</h3><p className="subtle">A single word grows familiarity. A meaningful pair unlocks a new place. Borrowing another player’s word helps both worlds learn. Open the campus map below to choose a floor and spend a building ability.</p>{match.lastInteraction && <div className="feedback interaction-feed"><strong>Campus message</strong><p>{match.lastInteraction}</p></div>}{match.previewWord && <div className="feedback"><strong>Next draw</strong><p>{vocabularyById[match.previewWord]?.word}</p></div>}</section></aside></div>
-    <div className="campus-tools"><BuildingPanel player={activePlayer} match={match} selectedBuildingId={selectedBuildingId} selectedFloor={selectedFloor} targetPlayerId={abilityTargetId} onSelectBuilding={(id) => { setSelectedBuildingId(id); setSelectedFloor(1); setAbilityTargetId(""); }} onSelectFloor={setSelectedFloor} onSelectTarget={setAbilityTargetId} onUseAbility={useSelectedAbility} /><RecipeBook player={activePlayer} onTryFormula={loadFormula} onVisitBuilding={visitBuilding} /></div>
-  </div><div className="footer-note">Wordcraft Classroom · meaningful vocabulary practice at your learners’ level</div></main>;
-}
-
-type BuildingPanelProps = {
-  player: PlayerState;
-  match: MatchState;
-  selectedBuildingId: string | null;
-  selectedFloor: number;
-  targetPlayerId: string;
-  onSelectBuilding: (id: string) => void;
-  onSelectFloor: (floor: number) => void;
-  onSelectTarget: (id: string) => void;
-  onUseAbility: () => void;
-};
-
-function BuildingPanel({ player, match, selectedBuildingId, selectedFloor, targetPlayerId, onSelectBuilding, onSelectFloor, onSelectTarget, onUseAbility }: BuildingPanelProps) {
-  const selected = player.structures.find((structure) => structure.id === selectedBuildingId) || player.structures[0];
-  const ability = selected?.ability;
-  const abilityFloor = selected?.abilityFloor || 1;
-  const targetRequired = ability === "social" || (ability === "exchange" && match.mode === "local" && match.players.length > 1);
-  const targetPlayers = match.players.filter((candidate) => candidate.id !== player.id);
-  const floorUnlocked = (floor: number) => Boolean(selected && floor <= Math.min(3, Math.max(1, selected.level)));
-  const buildingImage = selected?.image?.startsWith("/buildings/") ? selected.image : buildingImageForWord[selected?.sourceWords[0] || ""] || selected?.image || vocabularyById[selected?.sourceWords[0] || ""]?.image;
-  const used = ability ? player.usedAbilities.includes(ability) : false;
-
-  return <section className="panel campus-panel building-panel">
-    <div className="campus-panel-head"><div><div className="eyebrow">Campus map</div><h3>Walk inside your buildings</h3><p className="subtle">Choose a building, then choose a floor. Higher floors open as that building upgrades.</p></div><span className="pill">{player.structures.length} {player.structures.length === 1 ? "place" : "places"}</span></div>
-    {player.structures.length === 0 ? <div className="empty-building"><span className="empty-building-icon">🏗️</span><div><b>Your campus is waiting for its first building.</b><p className="subtle">Use a word or a recipe above. The new place will appear here with an illustrated entrance.</p></div></div> : <>
-      <div className="building-list">{player.structures.map((structure) => {
-        const image = structure.image?.startsWith("/buildings/") ? structure.image : buildingImageForWord[structure.sourceWords[0]] || structure.image || vocabularyById[structure.sourceWords[0]]?.image;
-        const active = structure.id === selected?.id;
-        return <button key={structure.id} className={`building-tile ${active ? "active" : ""}`} onClick={() => onSelectBuilding(structure.id)}><img src={image} alt={`${structure.name} illustration`}/><span className="building-tile-copy"><b>{structure.name}</b><small>{structure.sourceWords.map((word) => vocabularyById[word]?.word || word).join(" + ")}</small></span><span className="building-level">Lv {structure.level}</span></button>;
-      })}</div>
-      {selected && <div className="building-console">
-        <div className="building-hero"><img src={buildingImage} alt={`${selected.name} illustration`}/><div><div className="eyebrow">{selected.name}</div><h4>Level {selected.level} building</h4><p className="subtle">Formula: <strong>{selected.sourceWords.map((word) => vocabularyById[word]?.word || word).join(" + ")}</strong></p></div></div>
-        <div className="floor-strip" aria-label={`${selected.name} floors`}>{[1, 2, 3].map((floor) => { const unlocked = floorUnlocked(floor); const isAbilityFloor = Boolean(ability && floor === abilityFloor); return <button key={floor} className={`floor-btn ${selectedFloor === floor ? "selected" : ""} ${isAbilityFloor ? "ability-floor" : ""}`} disabled={!unlocked} title={unlocked ? `Enter floor ${floor}` : `Upgrade to level ${floor} to unlock this floor`} onClick={() => onSelectFloor(floor)}><span className="floor-number">{unlocked ? floor : "🔒"}</span><span>{isAbilityFloor ? "Ability" : `Floor ${floor}`}</span></button>; })}</div>
-        {ability && selectedFloor === abilityFloor && <div className="ability-console"><div><div className="eyebrow">Floor {abilityFloor} ability</div><b>{abilityCopy[ability].title}{used ? " · already used" : ""}</b><p className="subtle">{abilityCopy[ability].description}</p></div>{targetRequired && <label className="target-picker"><span>Choose a builder to interact with</span><select value={targetPlayerId} onChange={(event) => onSelectTarget(event.target.value)}><option value="">Select a player…</option>{targetPlayers.map((target) => <option key={target.id} value={target.id}>{target.name}</option>)}</select></label>}<button className="btn btn-mint" disabled={used || (targetRequired && !targetPlayerId) || (targetRequired && !targetPlayers.length)} onClick={onUseAbility}>{used ? "Ability spent" : targetRequired ? "Use on this builder" : "Use ability"}</button></div>}
-      </div>}
-    </>}
-  </section>;
+    </section><aside className="side-stack"><BingoBoard progress={activePlayer.bingo} words={[...new Set([...match.players.flatMap((player) => player.hand), ...match.drawPile])].map((id) => vocabularyById[id]).filter((word): word is VocabularyWord => Boolean(word))} /></aside></div>
+  </div><div className="footer-note">Wordcraft Classroom · meaningful vocabulary practice at your learners’ level</div></main>{hideImagesUntilClick && imagePreviewWord && <WordImagePreview item={imagePreviewWord} language="en" onClose={() => setImagePreviewWord(null)} />}</>;
 }
 
 function Header() { return <header className="topbar"><a className="brand" href="/" aria-label="Wordcraft Classroom home"><span className="brand-logo-frame"><img className="brand-logo" src="/wordcraft-logo-transparent.png" alt="Wordcraft Classroom" /></span></a><div className="topbar-tools"><span className="pill">For teachers &amp; active students</span><nav className="language-switch" aria-label="Language switch"><span aria-current="page">English</span><a href="/zh">中文</a></nav></div></header>; }
@@ -884,6 +828,8 @@ type SetupProps = {
   setDurationMinutes: (minutes: number) => void;
   languageCheckMode: LanguageCheckMode;
   setLanguageCheckMode: (mode: LanguageCheckMode) => void;
+  hideImagesUntilClick: boolean;
+  onHideImagesUntilClickChange: (hidden: boolean) => void;
   startMatch: () => void;
   studentLink: string;
   setStudentLink: (value: string) => void;
@@ -935,7 +881,7 @@ type SetupProps = {
   illustrationBatch: IllustrationBatchState | null;
 };
 
-function Setup({ mode, setMode, names, setNames, learnerLevel, setLearnerLevel, wordFocus, setWordFocus, durationMinutes, setDurationMinutes, languageCheckMode, setLanguageCheckMode, startMatch, studentLink, setStudentLink, studentJoined, studentJoinNotice, onJoinTeacherLink, shareUrl, shareNotice, onCreateStudentLink, onCopyStudentLink, customWords, linkedClassWords, classFolders, activeFolder, selectedLibraryIds, folderNameDraft, setFolderNameDraft, libraryQuery, setLibraryQuery, libraryLevel, setLibraryLevel, libraryTopic, setLibraryTopic, folderNotice, folderFileInputRef, libraryWords, onSelectFolder, onNewFolder, onCreateFolder, onSaveFolder, onDeleteFolder, onToggleLibraryWord, onSelectVisibleWords, onClearVisibleWords, onImportFolder, onExportFolder, studioDraft, setStudioDraft, studioNotice, importInputRef, onImport, onImportFile, onGenerate, onGenerateBatch, onRequestBatchReminder, batchReminderArmed, onDelete, generatingWordId, illustrationBatch }: SetupProps) {
+function Setup({ mode, setMode, names, setNames, learnerLevel, setLearnerLevel, wordFocus, setWordFocus, durationMinutes, setDurationMinutes, languageCheckMode, setLanguageCheckMode, hideImagesUntilClick, onHideImagesUntilClickChange, startMatch, studentLink, setStudentLink, studentJoined, studentJoinNotice, onJoinTeacherLink, shareUrl, shareNotice, onCreateStudentLink, onCopyStudentLink, customWords, linkedClassWords, classFolders, activeFolder, selectedLibraryIds, folderNameDraft, setFolderNameDraft, libraryQuery, setLibraryQuery, libraryLevel, setLibraryLevel, libraryTopic, setLibraryTopic, folderNotice, folderFileInputRef, libraryWords, onSelectFolder, onNewFolder, onCreateFolder, onSaveFolder, onDeleteFolder, onToggleLibraryWord, onSelectVisibleWords, onClearVisibleWords, onImportFolder, onExportFolder, studioDraft, setStudioDraft, studioNotice, importInputRef, onImport, onImportFile, onGenerate, onGenerateBatch, onRequestBatchReminder, batchReminderArmed, onDelete, generatingWordId, illustrationBatch }: SetupProps) {
   const levels = LEVEL_OPTIONS;
   const focuses = FOCUS_OPTIONS;
   const studentMode = mode === "student";
@@ -952,25 +898,26 @@ function Setup({ mode, setMode, names, setNames, learnerLevel, setLearnerLevel, 
       <div className="hero-copy"><div className="eyebrow">Vocabulary practice for any English classroom</div><h1>Plan less.<br/><span>Make words stick.</span></h1><p>Teachers set the words. Students hear, use, combine, and revisit them through meaningful sentences.</p><div className="hero-proof"><span><b>54</b> ready-to-play words</span><span><b>3</b> adaptable levels</span><span><b>1</b> classroom link</span></div></div>
       <section className="hero-art round-guide" aria-labelledby="round-guide-title">
         <div className="round-guide-kicker"><span>How to play</span><span>one timed round</span></div>
-        <h2 id="round-guide-title">Build a campus with words.</h2>
+        <h2 id="round-guide-title">Turn class words into a Bingo card.</h2>
         <ol className="round-guide-steps">
           <li><span className="round-guide-number">1</span><div><b>Pick</b><small>Choose 1–4 words from your shelf.</small></div></li>
           <li><span className="round-guide-number">2</span><div><b>Make a sentence</b><small>Type or say one clear sentence using every chosen word.</small></div></li>
-          <li><span className="round-guide-number">3</span><div><b>Build</b><small>A correct word starts or upgrades a place. A recipe pair unlocks a special building.</small></div></li>
+          <li><span className="round-guide-number">3</span><div><b>Play Bingo</b><small>A correct sentence lights matching words. Complete a line, then fill the full card to get a new one.</small></div></li>
         </ol>
-        <div className="round-guide-win"><span aria-hidden="true">★</span><div><b>How to win</b><small>When time runs out, the highest World score is Top Builder. Solo play ends with a score and review list.</small></div></div>
+        <div className="round-guide-win"><span aria-hidden="true">★</span><div><b>How to win</b><small>When time runs out, the player with the most Bingo lines wins. Solo rounds show your Bingo total and saved review words.</small></div></div>
       </section>
     </div>
     <div className="content"><div className={`setup-grid teacher-setup ${studentMode ? "student-setup" : ""}`}><section className="panel setup-card"><div className="eyebrow">Your lesson setup</div><h2>{studentMode ? "Join a teacher's table" : "Make this game fit your class"}</h2><p>{studentMode ? "Paste the link your teacher shared. Your words and level will load on this device." : activeFolder ? `Using the ${activeFolder.name} folder. Change its words below when you are ready.` : "Choose a language level and round length, then save a class folder or use the initial word bank."}</p>
       <div className="setup-section"><label className="field-label">1 · How will students play?</label><div className="mode-row"><button className={`mode-btn ${mode === "solo" ? "active" : ""}`} onClick={() => setMode("solo")}><strong>Individual</strong><span>One learner or a projected class challenge.</span></button><button className={`mode-btn ${mode === "local" ? "active" : ""}`} onClick={() => setMode("local")}><strong>Teams / pairs</strong><span>Rotate 2–4 groups on one screen.</span></button><button className={`mode-btn ${mode === "student" ? "active" : ""}`} onClick={() => setMode("student")}><strong>Student Table</strong><span>Join your teacher's words with a link.</span></button></div></div>
       {studentMode ? <div className="student-join-panel"><div className="eyebrow">Student Table</div><h3>Join your teacher's vocabulary</h3><p className="subtle">Paste the classroom link your teacher copied for you. It brings in the same class words, level, round length, and sentence check.</p><div className="student-join-row"><label className="visually-hidden" htmlFor="teacher-classroom-link">Teacher classroom link</label><input id="teacher-classroom-link" className="text-input" value={studentLink} onChange={(event) => setStudentLink(event.target.value)} placeholder="Paste your teacher's classroom link"/><button className="btn btn-mint" disabled={!studentLink.trim()} onClick={onJoinTeacherLink}>Join classroom</button></div>{studentJoinNotice && <p className={`student-join-notice ${studentJoined ? "success" : "error"}`} role="status">{studentJoinNotice}</p>}</div> : <><div className="setup-section"><label className="field-label">2 · Choose the language level</label><div className="choice-grid">{levels.map((level) => <button key={level.id} className={`choice-chip ${learnerLevel === level.id ? "active" : ""}`} onClick={() => setLearnerLevel(level.id)}><b>{level.label}</b><small>{level.note}</small></button>)}</div></div><div className="setup-section round-length-section"><div className="round-length-field"><label className="field-label" htmlFor="round-length">3 · Round length</label><select id="round-length" className="text-input" value={durationMinutes} onChange={(event) => setDurationMinutes(Number(event.target.value))}>{[5,8,12,15].map((minutes) => <option key={minutes} value={minutes}>{minutes} minutes</option>)}</select></div></div><details className="advanced-section"><summary className="advanced-toggle"><span className="advanced-toggle-copy"><b>Advanced options</b><small>{wordFocus === "mixed" ? "Optional topic filter for the initial word bank" : `Initial word bank: ${focusLabel}`}</small></span><span className="advanced-chevron" aria-hidden="true">⌄</span></summary><div className="advanced-options"><label className="field-label" htmlFor="vocabulary-focus">Topic</label><select id="vocabulary-focus" className="text-input" value={wordFocus} onChange={(event) => setWordFocus(event.target.value as WordFocus)}>{focuses.map((focus) => <option key={focus.id} value={focus.id}>{focus.label}</option>)}</select><p className="advanced-caption">Use this only when you want to narrow the initial Wordcraft word bank by topic. Saved class folders use the words you select below.</p></div></details></>}
+      <section className="setup-section image-visibility-section" aria-labelledby="image-visibility-title"><div className="field-label" id="image-visibility-title">Optional · Word pictures</div><label className="image-visibility-choice"><input type="checkbox" checked={hideImagesUntilClick} onChange={(event) => onHideImagesUntilClickChange(event.target.checked)} /><span><b>Hide pictures during play</b><small>Double-click a word card to view its picture.</small></span><span className="image-visibility-icon" aria-hidden="true">▧</span></label></section>
       <fieldset className="setup-section language-check-section"><legend className="field-label">{studentMode ? "2" : "4"} · What should this round focus on?</legend><div className="language-check-grid"><button type="button" className={`language-check-card fast ${languageCheckMode === "fast" ? "active" : ""}`} aria-pressed={languageCheckMode === "fast"} onClick={() => setLanguageCheckMode("fast")}><span className="check-card-top"><span className="check-card-icon" aria-hidden="true">⚡</span><span><small>Fast Check</small><strong>Familiarize Word Meaning</strong></span><em>Instant</em></span><span className="check-card-focus">Recognize the word meaning and use it in a simple sentence pattern.</span><span className="check-card-fact good"><b>Advantage</b> Very fast feedback and smoother gameplay.</span><span className="check-card-fact tradeoff"><b>Drawback</b> Checks basic structure and target words, not deep grammar or natural word use.</span></button><button type="button" className={`language-check-card ai ${languageCheckMode === "ai" ? "active" : ""}`} aria-pressed={languageCheckMode === "ai"} onClick={() => setLanguageCheckMode("ai")}><span className="check-card-top"><span className="check-card-icon" aria-hidden="true">✦</span><span><small>AI Language Check</small><strong>Grammar &amp; Word Use</strong></span><em>About 25 seconds</em></span><span className="check-card-focus">Use the word correctly in context and build grammatically correct sentences.</span><span className="check-card-fact good"><b>Advantage</b> Checks grammar, meaning, and natural word use with detailed feedback.</span><span className="check-card-fact tradeoff"><b>Drawback</b> Takes longer while AI analyzes the whole sentence.</span></button></div></fieldset>
       {!studentMode && <div className="setup-section lesson-folder-section"><label className="field-label" htmlFor="lesson-folder">5 · Class folder for this round</label><select id="lesson-folder" className="text-input" value={activeFolder?.id || "initial"} onChange={(event) => event.target.value === "initial" ? onNewFolder() : onSelectFolder(event.target.value)}><option value="initial">Initial Wordcraft word bank</option>{classFolders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name} · {folder.words.length} words</option>)}</select><small className="subtle">Pick a saved class set, or use the initial testing bank. Manage folders below.</small></div>}
       <div className="setup-section"><label className="field-label">{studentMode ? "3 · Your name" : "6 · " + (mode === "solo" ? "Learner or class name" : "Team names")}</label>{studentMode ? <input className="text-input" value={names[0]} onChange={(event) => setNames([event.target.value, ...names.slice(1)])} placeholder="Your name" /> : mode === "solo" ? <input className="text-input" value={names[0]} onChange={(event) => setNames([event.target.value, ...names.slice(1)])} /> : <div className="name-grid">{names.map((name, index) => <input className="text-input" key={index} value={name} placeholder={`Team ${index + 1}`} onChange={(event) => setNames(names.map((current, item) => item === index ? event.target.value : current))} />)}</div>}</div>
       {studentMode && studentJoined && <div className="student-ready"><span>✓</span><div><b>Ready for {focusLabel}</b><small>{linkedClassWords.length ? `${linkedClassWords.length} class words` : "Class word bank"} · {durationMinutes} minutes · {languageCheckMode === "ai" ? "AI Language Check" : "Fast Check"}</small></div></div>}
       <div className="teacher-actions"><button className="btn btn-primary start-lesson" disabled={studentMode && !studentJoined} onClick={startMatch}>{studentMode ? "Start student table" : "Start vocabulary round"}<span>→</span></button><p className="round-random-note"><span aria-hidden="true">↻</span> Words reshuffle each time you start a round.</p>{!studentMode && <button className="share-link-trigger" onClick={onCreateStudentLink}>🔗 Get student link</button>}</div>
       {!studentMode && shareUrl && <div className="share-link-panel" aria-live="polite"><div><b>Student link ready</b><small>Students can open this link or paste it into Student Table.</small></div><div className="share-link-row"><label className="visually-hidden" htmlFor="student-share-link">Student classroom link</label><input id="student-share-link" className="share-link-input" value={shareUrl} readOnly onFocus={(event) => event.currentTarget.select()} /><button className="btn btn-mint" onClick={onCopyStudentLink}>Copy</button></div>{shareNotice && <p className="share-link-notice" role="status">{shareNotice}</p>}</div>}
-      </section>{!studentMode && <section className="panel feature-card teacher-guide"><div className="eyebrow">For every learner</div><h3>Teachers set the pace.<br/>Students make it theirs.</h3><div className="feature-list"><div className="feature"><span className="feature-icon">01</span><div><b>Teacher sets the words</b><small>Build a focused set and share one classroom link.</small></div></div><div className="feature"><span className="feature-icon">02</span><div><b>Students join instantly</b><small>Each learner gets a personal table with no account.</small></div></div><div className="feature"><span className="feature-icon">03</span><div><b>Context over recall</b><small>Use complete sentences to make every word stick.</small></div></div><div className="feature"><span className="feature-icon">04</span><div><b>Review you can see</b><small>Every table shows which words need another turn.</small></div></div></div><div className="teacher-tip"><b>Teacher tip</b><span>Project the teacher view, then let students open their own Student Table.</span></div></section>}</div>{!studentMode && <><ClassFolderStudio classFolders={classFolders} activeFolder={activeFolder} selectedLibraryIds={selectedLibraryIds} folderNameDraft={folderNameDraft} setFolderNameDraft={setFolderNameDraft} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} libraryLevel={libraryLevel} setLibraryLevel={setLibraryLevel} libraryTopic={libraryTopic} setLibraryTopic={setLibraryTopic} folderNotice={folderNotice} folderFileInputRef={folderFileInputRef} libraryWords={libraryWords} onSelectFolder={onSelectFolder} onNewFolder={startNewClassFolder} onCreateFolder={createClassFolder} onSaveFolder={saveActiveClassFolder} onDeleteFolder={deleteActiveClassFolder} onToggleLibraryWord={onToggleLibraryWord} onSelectVisibleWords={onSelectVisibleWords} onClearVisibleWords={onClearVisibleWords} onImportFolder={importClassFolder} onExportFolder={exportActiveClassFolder} /><IllustrationStudio customWords={customWords} studioDraft={studioDraft} setStudioDraft={setStudioDraft} studioNotice={studioNotice} importInputRef={importInputRef} onImport={onImport} onImportFile={onImportFile} onGenerate={onGenerate} onGenerateBatch={onGenerateBatch} onRequestBatchReminder={onRequestBatchReminder} batchReminderArmed={batchReminderArmed} onDelete={onDelete} generatingWordId={generatingWordId} illustrationBatch={illustrationBatch} /></>}</div><div className="footer-note">Teachers share the words · students practice on their own table · no accounts needed</div></main>;
+      </section>{!studentMode && <section className="panel feature-card teacher-guide"><div className="eyebrow">For every learner</div><h3>Teachers set the pace.<br/>Students make it theirs.</h3><div className="feature-list"><div className="feature"><span className="feature-icon">01</span><div><b>Teacher sets the words</b><small>Build a focused set and share one classroom link.</small></div></div><div className="feature"><span className="feature-icon">02</span><div><b>Students join instantly</b><small>Each learner gets a personal table with no account.</small></div></div><div className="feature"><span className="feature-icon">03</span><div><b>Context over recall</b><small>Use complete sentences to make every word stick.</small></div></div><div className="feature"><span className="feature-icon">04</span><div><b>Review you can see</b><small>Every table shows which words need another turn.</small></div></div></div><div className="teacher-tip"><b>Teacher tip</b><span>Project the teacher view, then let students open their own Student Table.</span></div></section>}</div>{!studentMode && <><ClassFolderStudio classFolders={classFolders} activeFolder={activeFolder} selectedLibraryIds={selectedLibraryIds} folderNameDraft={folderNameDraft} setFolderNameDraft={setFolderNameDraft} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} libraryLevel={libraryLevel} setLibraryLevel={setLibraryLevel} libraryTopic={libraryTopic} setLibraryTopic={setLibraryTopic} folderNotice={folderNotice} folderFileInputRef={folderFileInputRef} libraryWords={libraryWords} onSelectFolder={onSelectFolder} onNewFolder={startNewClassFolder} onCreateFolder={createClassFolder} onSaveFolder={saveActiveClassFolder} onDeleteFolder={deleteActiveClassFolder} onToggleLibraryWord={onToggleLibraryWord} onSelectVisibleWords={onSelectVisibleWords} onClearVisibleWords={onClearVisibleWords} onImportFolder={importClassFolder} onExportFolder={exportActiveClassFolder} /><IllustrationStudio customWords={customWords} studioDraft={studioDraft} setStudioDraft={setStudioDraft} studioNotice={studioNotice} importInputRef={importInputRef} onImport={onImport} onImportFile={onImportFile} onGenerate={onGenerate} onGenerateBatch={onGenerateBatch} onRequestBatchReminder={onRequestBatchReminder} batchReminderArmed={batchReminderArmed} onDelete={onDelete} generatingWordId={generatingWordId} illustrationBatch={illustrationBatch} /></>}</div><FeedbackPanel language="en" /><div className="footer-note">Teachers share the words · students practice on their own table · no accounts needed</div></main>;
 }
 
 type ClassFolderStudioProps = {
@@ -1116,19 +1063,20 @@ function parseImportedVocabulary(raw: string, existing: VocabularyWord[]): Vocab
 function slugify(value: string) { return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 42); }
 
 function Summary({ match, restart }: { match: MatchState; restart: () => void }) {
-  const summaries = useMemo(() => summarize(match).sort((a, b) => b.score - a.score), [match]);
-  const winner = summaries[0];
+  const summaries = useMemo(() => summarize(match), [match]);
+  const rankedPlayers = useMemo(() => [...match.players].sort((left, right) => (right.bingo?.bingos || 0) - (left.bingo?.bingos || 0) || (right.bingo?.boardsCompleted || 0) - (left.bingo?.boardsCompleted || 0)), [match.players]);
+  const winner = rankedPlayers[0];
   const grammarMistakes = match.submissions.filter((submission) => submission.grammarMistake);
 
   return <main className="app-shell"><Header /><div className="content"><section className="panel summary">
-    <div className="eyebrow">The campus is open</div><h2>Match complete.</h2>
-    {winner && <div className="winner"><div className="eyebrow">Top builder</div><h3>{match.players.find((player) => player.id === winner.playerId)?.name} · {winner.score} points</h3><p className="subtle">Core word: <strong>{winner.highestFamiliarityWord || "still discovering"}</strong>. Every valid use is a small step toward fluency.</p></div>}
-    <table className="summary-table"><thead><tr><th>Builder</th><th>Score</th><th>Places</th><th>Successful uses</th></tr></thead><tbody>{summaries.map((item) => <tr key={item.playerId}><td><strong>{match.players.find((player) => player.id === item.playerId)?.name}</strong></td><td>{item.score}</td><td>{item.craftedStructures.length}</td><td>{item.successfulUses}</td></tr>)}</tbody></table>
+    <div className="eyebrow">Round complete</div><h2>Bingo results.</h2>
+    {winner && <div className="winner"><div className="eyebrow">Most Bingo lines</div><h3>{winner.name} · {winner.bingo?.bingos || 0} Bingos</h3><p className="subtle">Cleared {winner.bingo?.boardsCompleted || 0} full boards. Every correct sentence helped light the next square.</p></div>}
+    <table className="summary-table"><thead><tr><th>Player</th><th>Bingo lines</th><th>Boards cleared</th><th>Correct sentences</th></tr></thead><tbody>{rankedPlayers.map((player) => <tr key={player.id}><td><strong>{player.name}</strong></td><td>{player.bingo?.bingos || 0}</td><td>{player.bingo?.boardsCompleted || 0}</td><td>{match.submissions.filter((submission) => submission.playerId === player.id && submission.valid).length}</td></tr>)}</tbody></table>
     <section className="grammar-summary" aria-labelledby="grammar-mistakes-title"><div className="summary-section-head"><div><h3 id="grammar-mistakes-title">Grammar mistakes</h3><p className="subtle">Sentences you chose to save. Type them again next time.</p></div><span className="summary-count">{grammarMistakes.length}</span></div>
-      {grammarMistakes.length ? <div className="grammar-mistake-list">{grammarMistakes.map((mistake) => { const builder = match.players.find((player) => player.id === mistake.playerId)?.name || "Builder"; const targets = mistake.targetWords.map((id) => vocabularyById[id]?.word || id).join(" + "); return <article className="grammar-mistake-card" key={mistake.id}><div className="grammar-mistake-meta"><strong>{builder}</strong><span>{targets}</span></div><p className="grammar-mistake-sentence">“{mistake.sentence}”</p><small>{mistake.feedback}</small></article>; })}</div> : <div className="grammar-empty">No grammar mistakes recorded this round. Keep building confidence.</div>}
+      {grammarMistakes.length ? <div className="grammar-mistake-list">{grammarMistakes.map((mistake) => { const learner = match.players.find((player) => player.id === mistake.playerId)?.name || "Learner"; const targets = mistake.targetWords.map((id) => vocabularyById[id]?.word || id).join(" + "); return <article className="grammar-mistake-card" key={mistake.id}><div className="grammar-mistake-meta"><strong>{learner}</strong><span>{targets}</span></div><p className="grammar-mistake-sentence">“{mistake.sentence}”</p><small>{mistake.feedback}</small></article>; })}</div> : <div className="grammar-empty">No grammar mistakes recorded this round. Keep practising.</div>}
     </section>
     <h3>Words marked for review</h3><p className="subtle">Words from the grammar mistakes you chose to save:</p><div className="review">{[...new Set(summaries.flatMap((item) => item.reviewItems))].map((id) => <span key={id}>{vocabularyById[id]?.word || id}</span>)}{!summaries.some((item) => item.reviewItems.length) && <span>Everything got a turn ✨</span>}</div>
-    <div className="action-row" style={{ marginTop: 28 }}><button className="btn btn-primary" onClick={restart}>Build another campus</button></div>
+    <div className="action-row" style={{ marginTop: 28 }}><button className="btn btn-primary" onClick={restart}>Play another round</button></div>
   </section></div></main>;
 }
 

@@ -1,0 +1,121 @@
+.backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #182820a8;
+  backdrop-filter: blur(6px);
+}
+
+.dialog {
+  position: relative;
+  width: min(390px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 28px 26px;
+  border: 1px solid #dbe8de;
+  border-radius: 25px;
+  background: linear-gradient(145deg, #fffefa, #f1f8f1);
+  box-shadow: 0 24px 70px #10251b66;
+  text-align: center;
+  animation: pop-in .18s ease-out;
+}
+
+.imageStage {
+  width: min(70vw, 250px);
+  max-width: 100%;
+  aspect-ratio: 1;
+  margin-bottom: 28px;
+}
+
+.zoomableImage {
+  position: relative;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  border: 1px solid #e4e9df;
+  border-radius: 24px;
+  background: #fffdf6;
+  cursor: zoom-in;
+  transform-origin: center;
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+
+.zoomableImage img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.zoomableImage.zoomed {
+  z-index: 2;
+  transform: scale(1.16);
+  box-shadow: 0 14px 30px #24342f30;
+  cursor: zoom-out;
+}
+
+.zoomableImage:focus-visible {
+  outline: 3px solid #e5b946;
+  outline-offset: 4px;
+}
+
+@media (hover: hover) {
+  .zoomableImage:hover {
+    z-index: 2;
+    transform: scale(1.16);
+    box-shadow: 0 14px 30px #24342f30;
+  }
+}
+
+.zoomHint {
+  margin: -14px 0 8px;
+  color: #77877f;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.dialog h2 {
+  margin: 0 0 4px;
+  color: #24342f;
+  font: 700 29px/1.1 Fraunces, "Songti SC", serif;
+}
+
+.dialog p {
+  margin: 0;
+  color: #687970;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.close {
+  position: absolute;
+  top: 11px;
+  right: 11px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #d7e2da;
+  border-radius: 50%;
+  background: #fff;
+  color: #40594c;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close:focus-visible { outline: 3px solid #e5b946; outline-offset: 3px; }
+
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog { animation: none; }
+  .zoomableImage { transition: none; }
+}

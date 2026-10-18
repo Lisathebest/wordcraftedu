@@ -21,9 +21,9 @@
     "word": "treadmill",
     "chinese": "跑步机",
     "collocations": [
-      "run on a treadmill",
-      "treadmill speed",
-      "get on/off the treadmill"
+      "go for a run on the treadmill",
+      "set the treadmill to a gentle incline",
+      "walk at a steady pace on the treadmill"
     ],
     "image": "/vocab/treadmill.png",
     "pronunciation": "/treadmill/",
@@ -81,9 +81,9 @@
     "word": "drawer",
     "chinese": "抽屉",
     "collocations": [
-      "top/bottom drawer",
-      "open a drawer",
-      "desk drawer"
+      "top dresser drawer",
+      "open the kitchen drawer",
+      "put the spare batteries in the drawer"
     ],
     "image": "/vocab/drawer.png",
     "pronunciation": "/drawer/",
@@ -96,9 +96,9 @@
     "word": "shelf",
     "chinese": "置物架",
     "collocations": [
-      "bookshelf",
-      "put on the shelf",
-      "shelf space"
+      "put the book back on the shelf",
+      "a shelf lined with books",
+      "mount a shelf on the wall"
     ],
     "image": "/vocab/shelf.png",
     "pronunciation": "/shelf/",
@@ -126,9 +126,9 @@
     "word": "bulb",
     "chinese": "灯泡",
     "collocations": [
-      "light bulb",
-      "replace a bulb",
-      "burn out"
+      "replace a burnt-out light bulb",
+      "screw in a new bulb",
+      "an energy-efficient LED bulb"
     ],
     "image": "/vocab/bulb.png",
     "pronunciation": "/bulb/",
@@ -261,9 +261,9 @@
     "word": "luggage",
     "chinese": "行李",
     "collocations": [
-      "heavy luggage",
+      "checked luggage",
       "carry-on luggage",
-      "pack my luggage"
+      "claim your luggage at baggage claim"
     ],
     "image": "/vocab/luggage.png",
     "pronunciation": "/luggage/",
@@ -276,9 +276,9 @@
     "word": "refresher",
     "chinese": "进修课程/复习课",
     "collocations": [
-      "refresher course",
-      "quick refresher",
-      "take a refresher"
+      "take a refresher course",
+      "a quick refresher on the basics",
+      "sign up for a first-aid refresher course"
     ],
     "image": "/vocab/refresher.png",
     "pronunciation": "/refresher/",
@@ -411,9 +411,9 @@
     "word": "tuition",
     "chinese": "学费",
     "collocations": [
-      "pay tuition fees",
-      "college tuition",
-      "tuition increase"
+      "pay tuition by the deadline",
+      "tuition and fees",
+      "a tuition bill for the semester"
     ],
     "image": "/vocab/tuition.png",
     "pronunciation": "/tuition/",
@@ -486,9 +486,9 @@
     "word": "beverage",
     "chinese": "饮料",
     "collocations": [
-      "hot/cold beverage",
-      "beverage option",
-      "complimentary beverage"
+      "a complimentary beverage with your meal",
+      "a cold beverage on a hot day",
+      "a wide selection of beverages"
     ],
     "image": "/vocab/beverage.png",
     "pronunciation": "/beverage/",
@@ -501,9 +501,9 @@
     "word": "venue",
     "chinese": "活动场地",
     "collocations": [
-      "event venue",
-      "book a venue",
-      "suitable venue"
+      "book a venue for the reception",
+      "a small venue near downtown",
+      "a venue that can accommodate 200 guests"
     ],
     "image": "/vocab/venue.png",
     "pronunciation": "/venue/",
@@ -591,9 +591,9 @@
     "word": "detergent",
     "chinese": "清洁剂/洗衣液",
     "collocations": [
-      "laundry detergent",
-      "pour detergent",
-      "eco-friendly detergent"
+      "a capful of laundry detergent",
+      "fragrance-free detergent for sensitive skin",
+      "add detergent to the washing machine"
     ],
     "image": "/vocab/detergent.png",
     "pronunciation": "/detergent/",
@@ -636,9 +636,9 @@
     "word": "patron",
     "chinese": "顾客/赞助人",
     "collocations": [
-      "library patron",
-      "regular patron",
-      "patron of arts"
+      "a regular library patron",
+      "serve library patrons",
+      "a patron of the arts"
     ],
     "image": "/vocab/patron.png",
     "pronunciation": "/patron/",
@@ -651,9 +651,9 @@
     "word": "observatory",
     "chinese": "天文台",
     "collocations": [
-      "astronomical observatory",
-      "visit an observatory",
-      "observatory deck"
+      "a public observatory",
+      "visit the observatory after dark",
+      "look through the telescope at the observatory"
     ],
     "image": "/vocab/observatory.png",
     "pronunciation": "/observatory/",
@@ -681,9 +681,9 @@
     "word": "pedestrian",
     "chinese": "行人",
     "collocations": [
-      "pedestrian crossing",
-      "pedestrian lane",
-      "yield to pedestrians"
+      "a pedestrian crossing",
+      "pedestrian safety around schools",
+      "yield to pedestrians in the crosswalk"
     ],
     "image": "/vocab/pedestrian.png",
     "pronunciation": "/pedestrian/",
@@ -696,9 +696,9 @@
     "word": "intersection",
     "chinese": "十字路口",
     "collocations": [
-      "busy intersection",
-      "street intersection",
-      "cross the intersection"
+      "a busy four-way intersection",
+      "turn left at the next intersection",
+      "stop at the intersection"
     ],
     "image": "/vocab/intersection.png",
     "pronunciation": "/intersection/",
@@ -711,9 +711,9 @@
     "word": "commute",
     "chinese": "通勤过程",
     "collocations": [
-      "commuting time",
-      "daily commute",
-      "long commute"
+      "a 30-minute commute",
+      "commute to work by train",
+      "the daily commute to campus"
     ],
     "image": "/vocab/commute.png",
     "pronunciation": "/commute/",
@@ -726,9 +726,9 @@
     "word": "deduction",
     "chinese": "扣分",
     "collocations": [
-      "grade deduction",
-      "cause a deduction",
-      "points deduction"
+      "a five-point deduction",
+      "a deduction for late work",
+      "claim a tax deduction"
     ],
     "image": "/vocab/deduction.png",
     "pronunciation": "/deduction/",
@@ -756,9 +756,9 @@
     "word": "plagiarism",
     "chinese": "抄袭",
     "collocations": [
-      "academic plagiarism",
-      "avoid plagiarism",
-      "plagiarism checker"
+      "avoid plagiarism in your paper",
+      "run a paper through a plagiarism checker",
+      "be accused of plagiarism"
     ],
     "image": "/vocab/plagiarism.png",
     "pronunciation": "/plagiarism/",
@@ -771,9 +771,9 @@
     "word": "pharmacy",
     "chinese": "药房/药店",
     "collocations": [
-      "campus pharmacy",
-      "local pharmacy",
-      "pharmacy prescription"
+      "fill a prescription at the pharmacy",
+      "pick up a prescription",
+      "the campus pharmacy is open late"
     ],
     "image": "/vocab/pharmacy.png",
     "pronunciation": "/pharmacy/",

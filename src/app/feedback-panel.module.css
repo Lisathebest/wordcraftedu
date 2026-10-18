@@ -1,0 +1,104 @@
+.panel {
+  max-width: 1280px;
+  margin: 34px auto 0;
+  overflow: hidden;
+  border: 1px solid #d9e4dd;
+  border-radius: 22px;
+  background: #fffefa;
+  box-shadow: 0 12px 34px #253c3410;
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.summary::-webkit-details-marker { display: none; }
+.summary:hover { background: #f7fbf7; }
+.panel[open] .summary { border-bottom: 1px solid #e3ebe5; }
+
+.heading {
+  min-width: 0;
+  flex: 1;
+}
+
+.heading > span {
+  display: block;
+  color: #2e8066;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.heading strong {
+  display: block;
+  margin-top: 3px;
+  color: #24342f;
+  font: 700 21px/1.15 Fraunces, "Songti SC", serif;
+  letter-spacing: -.025em;
+}
+
+.heading small {
+  display: block;
+  margin-top: 4px;
+  color: #71827a;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.mark {
+  width: 39px;
+  height: 39px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d9c47e;
+  border-radius: 13px 13px 13px 4px;
+  background: #fff3cd;
+  color: #8d7129;
+  font-size: 21px;
+  box-shadow: 3px 3px 0 #c5e0cf;
+}
+
+.toggle {
+  width: 27px;
+  height: 27px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #e8f2ea;
+  color: #2e8066;
+}
+
+.toggle::before {
+  content: "＋";
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.panel[open] .toggle::before { content: "−"; }
+.content { padding: 17px; }
+.frame { overflow: hidden; border: 1px solid #dbe4de; border-radius: 17px; background: #fff; }
+.frame iframe { display: block; width: 100%; height: 100%; min-height: 650px; border: 0; background: #fff; }
+
+.summary:focus-visible {
+  outline: 3px solid #e2b541;
+  outline-offset: -4px;
+}
+
+@media (max-width: 700px) {
+  .panel { margin-top: 28px; border-radius: 18px; }
+  .summary { gap: 10px; padding: 14px 12px; }
+  .heading strong { font-size: 18px; }
+  .heading small { font-size: 10px; }
+  .mark { width: 34px; height: 34px; font-size: 18px; }
+  .toggle { width: 24px; height: 24px; }
+  .content { padding: 10px; }
+  .frame,.frame iframe { border-radius: 13px; }
+}

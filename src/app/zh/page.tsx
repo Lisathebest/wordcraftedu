@@ -1,11 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type DragEvent } from "react";
-import { chineseIllustratedWords, chineseLevelMeta, chineseVocabulary } from "@/data/chinese-vocabulary";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { chineseLevelMeta, chineseVocabulary } from "@/data/chinese-vocabulary";
 import { joiningWords, sentenceStructures, tenseHelp } from "@/data/chinese-reference";
+import { BingoBoard } from "@/app/bingo-board";
+import { FeedbackPanel } from "@/app/feedback-panel";
+import { createBingoProgress, markBingoWords } from "@/lib/bingo";
 import { buildFallbackScaffold } from "@/lib/chinese-scaffold";
+import { loadHideImagesUntilClick, saveHideImagesUntilClick } from "@/lib/storage";
+import { WordImagePreview } from "@/app/word-image-preview";
 import type { ChineseLevel, ChinesePracticeMode, ChineseVocabularyWord, ScaffoldResponse } from "@/types/chinese-learning";
+import type { BingoProgress } from "@/types/game";
 import type { EvaluationResult } from "@/types/game";
 import styles from "./zh.module.css";
 
@@ -13,16 +19,11 @@ type Phase = "setup" | "practice" | "summary";
 type Chunk = { id: string; text: string };
 
 const GOALS = [5, 10, 15] as const;
-const BUILDINGS = ["study-center", "campus-cafe", "wellness-kiosk", "lecture-hall", "astronomy-center"];
 const RECOMMENDATION_KEY = "wordcraft.zh.recommended-level";
 
 function SafeImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
   const [currentSrc, setCurrentSrc] = useState(src);
   return <img className={className} src={currentSrc} alt={alt} onError={() => setCurrentSrc("/illustration-studio/pending-word.svg")} />;
-}
-
-function artSrc(word: ChineseVocabularyWord) {
-  return chineseIllustratedWords.has(word.word) ? word.image : "/illustration-studio/pending-word.svg";
 }
 
 function shuffle<T>(items: T[]) {
@@ -60,13 +61,22 @@ export default function ChineseLearningPage() {
   const [loadingScaffold, setLoadingScaffold] = useState(false);
   const [checking, setChecking] = useState(false);
   const [referenceOpen, setReferenceOpen] = useState(false);
+  const [scaffoldOpen, setScaffoldOpen] = useState(false);
   const [firstTry, setFirstTry] = useState(true);
   const [firstTryWords, setFirstTryWords] = useState(0);
-  const [buildings, setBuildings] = useState<string[]>([]);
+  const [bingoProgress, setBingoProgress] = useState<BingoProgress>(() => createBingoProgress([]));
+  const [hideImagesUntilClick, setHideImagesUntilClick] = useState(false);
+  const [imagePreviewWord, setImagePreviewWord] = useState<ChineseVocabularyWord | null>(null);
+  const [revealedMeaningId, setRevealedMeaningId] = useState<string | null>(null);
+  const meaningHoldTimer = useRef<number | null>(null);
 
   useEffect(() => {
     const saved = Number(window.localStorage.getItem(RECOMMENDATION_KEY));
     if (saved === 1 || saved === 2 || saved === 3) setRecommendedLevel(saved);
+    setHideImagesUntilClick(loadHideImagesUntilClick());
+    return () => {
+      if (meaningHoldTimer.current !== null) window.clearTimeout(meaningHoldTimer.current);
+    };
   }, []);
 
   const hand = remaining.slice(0, 4);
@@ -74,12 +84,14 @@ export default function ChineseLearningPage() {
   const structure = scaffold ? sentenceStructures.find((item) => item.id === scaffold.structureId) : null;
   const assembledSentence = arrangedChunks.map((chunk) => chunk.text).join(" ");
   const progress = Math.min(completed.length, goal);
+  const bingoWords = useMemo(() => [...completed, ...remaining], [completed, remaining]);
 
   const resetAttempt = () => {
     setSelectedIds([]);
     setChineseSentence("");
     setEnglishSentence("");
     setScaffold(null);
+    setScaffoldOpen(false);
     setChunkBank([]);
     setArrangedChunks([]);
     setFeedback(null);
@@ -91,7 +103,7 @@ export default function ChineseLearningPage() {
     setRemaining(shuffle(pool));
     setCompleted([]);
     setFirstTryWords(0);
-    setBuildings([]);
+    setBingoProgress(createBingoProgress(pool.map((word) => word.id)));
     resetAttempt();
     setPhase("practice");
   };
@@ -102,6 +114,26 @@ export default function ChineseLearningPage() {
     setChunkBank([]);
     setArrangedChunks([]);
     setFeedback(null);
+  };
+
+  const clearMeaningHold = () => {
+    if (meaningHoldTimer.current !== null) window.clearTimeout(meaningHoldTimer.current);
+    meaningHoldTimer.current = null;
+  };
+
+  const startMeaningHold = (event: ReactPointerEvent<HTMLButtonElement>, wordId: string) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    clearMeaningHold();
+    setRevealedMeaningId(null);
+    meaningHoldTimer.current = window.setTimeout(() => {
+      setRevealedMeaningId(wordId);
+      meaningHoldTimer.current = null;
+    }, 550);
+  };
+
+  const endMeaningHold = () => {
+    clearMeaningHold();
+    setRevealedMeaningId(null);
   };
 
   const speak = (word: string) => {
@@ -122,6 +154,7 @@ export default function ChineseLearningPage() {
       const payload = await response.json() as ScaffoldResponse & { error?: string };
       if (!response.ok) throw new Error(payload.error || "暂时不能生成提示。");
       setScaffold(payload);
+      setScaffoldOpen(true);
       setChunkBank((payload.chunks || []).map((text, index) => ({ id: `${index}-${text}`, text })));
       setArrangedChunks([]);
       if (mode === "independent") setReferenceOpen(true);
@@ -130,6 +163,7 @@ export default function ChineseLearningPage() {
       // The server normally returns this same deterministic fallback when an AI provider times out.
       const fallback = buildFallbackScaffold(chineseSentence, selectedIds, mode);
       setScaffold(fallback);
+      setScaffoldOpen(true);
       setChunkBank((fallback.chunks || []).map((text, index) => ({ id: `${index}-${text}`, text })));
       setArrangedChunks([]);
       setFeedback({ valid: false, confidence: 1, reason: "AI 提示暂时不可用，已切换到基础词库提示。", correctedSentence: "", relationshipSummary: error instanceof Error ? error.message : "", source: "rules", provisional: false });
@@ -170,10 +204,11 @@ export default function ChineseLearningPage() {
 
     const newlyCompleted = selectedWords.filter((word) => !completed.some((item) => item.id === word.id));
     const nextCompleted = [...completed, ...newlyCompleted];
+    const nextRemaining = remaining.filter((word) => !selectedIds.includes(word.id));
     if (firstTry) setFirstTryWords((count) => count + newlyCompleted.length);
     setCompleted(nextCompleted);
-    setBuildings((current) => [...current, BUILDINGS[current.length % BUILDINGS.length]]);
-    setRemaining((current) => current.filter((word) => !selectedIds.includes(word.id)));
+    setBingoProgress((current) => markBingoWords(current, selectedIds, nextRemaining.map((word) => word.id)));
+    setRemaining(nextRemaining);
     window.setTimeout(() => {
       if (nextCompleted.length >= goal) {
         const accuracy = (firstTryWords + (firstTry ? newlyCompleted.length : 0)) / nextCompleted.length;
@@ -200,7 +235,7 @@ export default function ChineseLearningPage() {
 
     {phase === "setup" && <div className={styles.setupShell}>
       <section className={styles.hero}>
-        <div><span className={styles.kicker}>给2-5年级学生的想象乐园</span><h1>先想中文，<br/><em>再搭一座英文句子桥。</em></h1><p>选词、写下想表达的意思，再用动词、时态和句型提示完成自己的英文句子。</p></div>
+        <div><span className={styles.kicker}>给2-5年级学生的想象乐园</span><h1>先想中文，<br/><em>再搭一座英文句子桥。</em></h1><p>选词、写下想表达的意思，再用动词、时态和句型提示完成英文句子。用对词语，就能点亮 Bingo 格子。</p></div>
         <div className={styles.bridgePreview} aria-label="学习流程"><span>中文想法</span><i>→</i><span>语言提示</span><i>→</i><span>英文句子</span></div>
       </section>
 
@@ -212,7 +247,7 @@ export default function ChineseLearningPage() {
           return <button key={item} className={`${styles.levelCard} ${level === item ? styles.active : ""}`} aria-pressed={level === item} onClick={() => setLevel(item)}>
             <span className={styles.levelTop}><b>{meta.title}</b>{recommendedLevel === item && <em>建议学习</em>}</span>
             <strong>{meta.note}</strong>
-            <span className={styles.sampleArt}>{samples.map((word) => <SafeImage key={word.id} src={artSrc(word)} alt="" />)}</span>
+            <span className={styles.sampleArt}>{samples.map((word) => <SafeImage key={word.id} src={word.image} alt="" />)}</span>
             <span className={styles.examples}>{meta.examples.join(" · ")}</span>
             <small>{meta.count} 个词</small>
           </button>;
@@ -223,28 +258,37 @@ export default function ChineseLearningPage() {
         <div><span className={styles.optionLabel}>第二步 · 这次学几个词？</span><div className={styles.segmented}>{GOALS.map((count) => <button key={count} className={goal === count ? styles.selected : ""} onClick={() => setGoal(count)}>{count} 个</button>)}</div></div>
         <div><span className={styles.optionLabel}>第三步 · 怎样完成句子？</span><div className={styles.modeGrid}><button className={mode === "beginner" ? styles.selected : ""} onClick={() => setMode("beginner")}><b>拖拽组句</b><small>系统给词块，我来排顺序</small></button><button className={mode === "independent" ? styles.selected : ""} onClick={() => setMode("independent")}><b>自己输入</b><small>参考提示，自己写完整英文</small></button></div></div>
       </section>
+      <section className={styles.imageSetting} aria-labelledby="image-setting-title">
+        <label><input type="checkbox" checked={hideImagesUntilClick} onChange={(event) => { const hidden = event.target.checked; setHideImagesUntilClick(hidden); saveHideImagesUntilClick(hidden); }} /><span><b id="image-setting-title">练习时隐藏图片</b><small>双击单词卡后再查看插画</small></span><i aria-hidden="true">▧</i></label>
+      </section>
       <button className={styles.startButton} onClick={start}>开始学习 <span>→</span></button>
     </div>}
 
     {phase === "practice" && <div className={styles.practiceShell}>
-      <section className={styles.progressBar}><div><span>Level {level}</span><strong>已学 {progress} / {goal} 个词</strong></div><div className={styles.progressTrack}><i style={{ width: `${progress / goal * 100}%` }} /></div><button onClick={() => setPhase("setup")}>结束本次练习</button></section>
+      <section className={styles.progressBar}><button className={styles.backButton} onClick={() => setPhase("setup")} aria-label="返回练习设置"><span aria-hidden="true">←</span><small>返回</small></button><div><span>Level {level}</span><strong>已学 {progress} / {goal} 个词</strong></div><div className={styles.progressTrack}><i style={{ width: `${progress / goal * 100}%` }} /></div></section>
 
       <div className={styles.practiceGrid}>
         <section className={styles.workspace}>
           <div className={styles.stepHead}><span>1</span><div><h2>选一到四个词</h2><p>点词卡选中，最多可以一起练习四个词。<small>已选 {selectedIds.length} / 4</small></p></div></div>
-          <div className={styles.wordGrid}>{hand.map((word) => <article key={word.id} className={`${styles.wordCard} ${selectedIds.includes(word.id) ? styles.wordSelected : ""}`}>
-            <button className={styles.wordMain} onClick={() => toggleWord(word.id)} aria-pressed={selectedIds.includes(word.id)}><SafeImage src={artSrc(word)} alt={`${word.chinese}的豆豆眼插画`} /><b>{word.word}</b><span>{word.chinese}</span></button>
+          <div className={styles.wordGrid}>{hand.map((word) => { const meaningRevealed = revealedMeaningId === word.id; return <article key={word.id} className={`${styles.wordCard} ${selectedIds.includes(word.id) ? styles.wordSelected : ""}`}>
+            <button className={styles.wordMain} onClick={(event) => { if (hideImagesUntilClick && event.detail > 1) return; toggleWord(word.id); }} onDoubleClick={() => { if (hideImagesUntilClick) setImagePreviewWord(word); }} aria-pressed={selectedIds.includes(word.id)} aria-label={`${word.word}。${meaningRevealed ? word.chinese : "中文释义已隐藏，长按显示。"}${hideImagesUntilClick ? "双击查看插画。" : ""}`} onPointerDown={(event) => startMeaningHold(event, word.id)} onPointerUp={endMeaningHold} onPointerCancel={endMeaningHold} onPointerLeave={endMeaningHold} onContextMenu={(event) => event.preventDefault()}>{hideImagesUntilClick ? <span className={styles.imageHidden} aria-hidden="true">▧</span> : <SafeImage src={word.image} alt="" />}<b>{word.word}</b><span className={`${styles.wordMeaning} ${meaningRevealed ? styles.meaningRevealed : styles.meaningHidden}`}>{meaningRevealed ? word.chinese : "长按显示中文释义"}</span></button>
             {typeof window !== "undefined" && "speechSynthesis" in window && <button className={styles.speakButton} aria-label={`播放 ${word.word} 的发音`} onClick={() => speak(word.word)}>🔊</button>}
-            <details><summary>常用动词</summary><p>{word.verbs.join(" · ")}</p></details>
-          </article>)}</div>
+            <div className={styles.verbHints}><small>常用动词</small><p>{word.verbs.join(" · ")}</p></div>
+          </article>; })}</div>
 
-          <div className={styles.bridgeStep}>
+          {mode === "independent" ? <details className={styles.optionalHelp} open={scaffoldOpen} onToggle={(event) => setScaffoldOpen(event.currentTarget.open)}>
+            <summary><span>可选帮助</span><strong>需要英文提示？</strong><small>展开后写中文想法，获取句型、动词和时态建议</small></summary>
+            <div className={styles.optionalHelpBody}>
+              <textarea value={chineseSentence} onChange={(event) => { setChineseSentence(event.target.value); setScaffold(null); setFeedback(null); }} placeholder="例如：我昨天在图书馆看了一本书。" maxLength={180} />
+              <button className={styles.supportButton} disabled={!selectedIds.length || !chineseSentence.trim() || loadingScaffold} onClick={getScaffold}>{loadingScaffold ? "正在搭桥…" : "帮我准备英文提示"}</button>
+            </div>
+          </details> : <div className={styles.bridgeStep}>
             <div className={styles.stepHead}><span>2</span><div><h2>先用中文想清楚</h2><p>句子里要包含你选中的词。</p></div></div>
             <textarea value={chineseSentence} onChange={(event) => { setChineseSentence(event.target.value); setScaffold(null); setFeedback(null); }} placeholder="例如：我昨天在图书馆看了一本书。" maxLength={180} />
             <button className={styles.supportButton} disabled={!selectedIds.length || !chineseSentence.trim() || loadingScaffold} onClick={getScaffold}>{loadingScaffold ? "正在搭桥…" : "帮我准备英文提示"}</button>
-          </div>
+          </div>}
 
-          {scaffold && <div className={styles.bridgeStep}>
+          {scaffold && (mode === "beginner" || scaffoldOpen) && <div className={styles.bridgeStep}>
             <div className={styles.stepHead}><span>3</span><div><h2>过桥，完成英文句子</h2><p>{scaffold.source === "ai" ? "AI 根据你的中文想法找出了动词和重要词。" : "先使用词库里的基础提示继续练习。"}</p></div></div>
             <div className={styles.scaffoldStrip}><div><small>可以用的动词</small><p>{scaffold.verbs.map((verb) => <button key={verb} onClick={() => setEnglishSentence((current) => `${current}${current ? " " : ""}${verb}`)}>{verb}</button>)}</p></div><div><small>本句推荐</small><strong>{scaffold.recommendedVerbForm}</strong></div><div><small>时态提示</small><span>{scaffold.tenseHint}</span></div></div>
             {scaffold.importantWords.length > 0 && <div className={styles.importantWords}><div><small>重要词</small><span>把中文里的细节变成英文表达，可选用，不必全部使用。</span></div><p>{scaffold.importantWords.map((hint) => <span key={`${hint.word}-${hint.chinese}`}><b>{hint.word}</b>{hint.chinese && <em>{hint.chinese}</em>}</span>)}</p></div>}
@@ -256,10 +300,15 @@ export default function ChineseLearningPage() {
                 {arrangedChunks.length ? arrangedChunks.map((chunk, index) => <button key={chunk.id} draggable onDragStart={(event) => dragStart(event, chunk)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.stopPropagation(); dropChunk(event, "answer", index); }} onClick={() => moveChunk(chunk, "bank")}>{chunk.text}</button>) : <span>把下面的词块拖到这里，也可以直接点选</span>}
               </div>
               <div className={styles.chunkBank} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropChunk(event, "bank")}>{chunkBank.map((chunk) => <button key={chunk.id} draggable onDragStart={(event) => dragStart(event, chunk)} onClick={() => moveChunk(chunk, "answer")}>{chunk.text}</button>)}</div>
-            </div> : <div className={styles.independentInput}><label htmlFor="english-sentence">写下完整英文句子</label><textarea id="english-sentence" value={englishSentence} onChange={(event) => { setEnglishSentence(event.target.value); setFeedback(null); }} placeholder="参考右边的句型结构，但要自己填完句子。" /></div>}
-
-            <div className={styles.submitRow}><button disabled={checking || !(mode === "beginner" ? assembledSentence : englishSentence).trim()} onClick={submitSentence}>{checking ? "正在检查…" : "检查我的句子"}</button><span>{selectedWords.map((word) => word.word).join(" + ")}</span></div>
-            {feedback && <div className={`${styles.feedback} ${feedback.valid ? styles.good : styles.bad}`} role="status"><strong>{feedback.valid ? "做到了！正在建造校园…" : "再改一点点"}</strong><p>{feedback.reason}</p>{feedback.correctedSentence && !feedback.valid && <code>{feedback.correctedSentence}</code>}{feedback.relationshipSummary && <small>{feedback.relationshipSummary}</small>}</div>}
+            </div> : null}
+            {mode === "beginner" && <div className={styles.submitRow}><button disabled={checking || !assembledSentence.trim()} onClick={submitSentence}>{checking ? "正在检查…" : "检查我的句子"}</button><span>{selectedWords.map((word) => word.word).join(" + ")}</span></div>}
+            {mode === "beginner" && feedback && <div className={`${styles.feedback} ${feedback.valid ? styles.good : styles.bad}`} role="status"><strong>{feedback.valid ? "做到了！词格亮起来了…" : "再改一点点"}</strong><p>{feedback.reason}</p>{feedback.correctedSentence && !feedback.valid && <code>{feedback.correctedSentence}</code>}{feedback.relationshipSummary && <small>{feedback.relationshipSummary}</small>}</div>}
+          </div>}
+          {mode === "independent" && <div className={styles.bridgeStep}>
+            <div className={styles.stepHead}><span>3</span><div><h2>直接写英文句子</h2><p>不需要中文提示，也可以直接开始造句。</p></div></div>
+            <div className={styles.independentInput}><label htmlFor="english-sentence">写下完整英文句子</label><textarea id="english-sentence" value={englishSentence} onChange={(event) => { setEnglishSentence(event.target.value); setFeedback(null); }} placeholder="例如：I read a book in the library yesterday." /></div>
+            <div className={styles.submitRow}><button disabled={checking || !englishSentence.trim()} onClick={submitSentence}>{checking ? "正在检查…" : "检查我的句子"}</button><span>{selectedWords.map((word) => word.word).join(" + ")}</span></div>
+            {feedback && <div className={`${styles.feedback} ${feedback.valid ? styles.good : styles.bad}`} role="status"><strong>{feedback.valid ? "做到了！词格亮起来了…" : "再改一点点"}</strong><p>{feedback.reason}</p>{feedback.correctedSentence && !feedback.valid && <code>{feedback.correctedSentence}</code>}{feedback.relationshipSummary && <small>{feedback.relationshipSummary}</small>}</div>}
           </div>}
         </section>
 
@@ -272,13 +321,15 @@ export default function ChineseLearningPage() {
       </div>
 
       <button className={styles.referenceFab} onClick={() => setReferenceOpen(true)}>打开参考卡</button>
-      <div className={styles.campusShelf} aria-label="我的校园"><div><span>我的校园</span><strong>{buildings.length} 座建筑</strong></div>{buildings.map((building, index) => <img key={`${building}-${index}`} src={`/buildings/${building}.png`} alt="刚刚建成的校园建筑" />)}{!buildings.length && <p>完成第一句，校园里就会出现一座新建筑。</p>}</div>
+      <BingoBoard progress={bingoProgress} words={bingoWords} language="zh" />
     </div>}
 
     {phase === "summary" && <div className={styles.summaryShell}>
-      <span className={styles.kicker}>这次的句子桥搭好了</span><h1>你学会了 {progress} 个词。</h1><p>首次答对率 {Math.round(firstTryWords / Math.max(1, completed.length) * 100)}%，系统建议下次学习 Level {recommendedLevel}。</p>
-      <div className={styles.summaryWords}>{completed.slice(0, goal).map((word) => <article key={word.id}><SafeImage src={artSrc(word)} alt="" /><b>{word.word}</b><span>{word.chinese}</span></article>)}</div>
+      <span className={styles.kicker}>这次的句子桥搭好了</span><h1>你学会了 {progress} 个词。</h1><p>首次答对率 {Math.round(firstTryWords / Math.max(1, completed.length) * 100)}%。本轮完成 {bingoProgress.bingos} 条 Bingo，点亮整张卡 {bingoProgress.boardsCompleted} 次。系统建议下次学习 Level {recommendedLevel}。</p>
+      <div className={styles.summaryWords}>{completed.slice(0, goal).map((word) => <article key={word.id}><SafeImage src={word.image} alt="" /><b>{word.word}</b><span>{word.chinese}</span></article>)}</div>
       <div className={styles.summaryActions}><button onClick={start}>再练一次</button><button onClick={() => setPhase("setup")}>重新选择 Level</button></div>
     </div>}
+    {phase === "setup" && <FeedbackPanel language="zh" />}
+    {hideImagesUntilClick && imagePreviewWord && <WordImagePreview item={imagePreviewWord} language="zh" onClose={() => setImagePreviewWord(null)} />}
   </main>;
 }

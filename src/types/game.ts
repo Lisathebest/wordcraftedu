@@ -50,6 +50,7 @@ export interface PlayerState {
   id: string;
   name: string;
   hand: string[];
+  bingo: BingoProgress;
   familiarity: Record<string, number>;
   lastUsed: Record<string, number>;
   structures: BuiltStructure[];
@@ -57,6 +58,15 @@ export interface PlayerState {
   score: number;
   usedAbilities: AbilityId[];
   shieldActive: boolean;
+}
+
+export interface BingoProgress {
+  /** The active board is sized to the number of distinct words in its pool, up to 3×3. */
+  size: number;
+  cards: { wordId: string; lit: boolean }[];
+  /** Cumulative completed rows, columns, and diagonals across this player's round. */
+  bingos: number;
+  boardsCompleted: number;
 }
 
 export interface SubmissionRecord {

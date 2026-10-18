@@ -8,7 +8,7 @@ function makeLevel(level: ChineseLevel, specs: WordSpec[]): ChineseVocabularyWor
     word,
     chinese,
     level,
-    image: `/vocab-zh/l${level}/${word}.png`,
+    image: `/vocab-zh/cropped/l${level}/${word}.png`,
     verbs,
   }));
 }
@@ -129,9 +129,6 @@ const level3 = makeLevel(3, [
 
 export const chineseVocabulary = [...level1, ...level2, ...level3];
 export const chineseVocabularyById = Object.fromEntries(chineseVocabulary.map((word) => [word.id, word]));
-/** Static art is added as it passes visual QA; missing entries use the pencil placeholder. */
-export const chineseIllustratedWords = new Set(["book", "library", "microscope"]);
-
 export const chineseLevelMeta = {
   1: { title: "Level 1", note: "从最熟悉的身边物品开始", examples: ["book", "apple", "cat", "bus", "kite"], count: 45 },
   2: { title: "Level 2", note: "认识更多生活场景里的名词", examples: ["library", "refrigerator", "umbrella", "airplane", "elephant"], count: 30 },

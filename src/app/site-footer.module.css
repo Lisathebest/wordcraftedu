@@ -1,0 +1,89 @@
+.footer {
+  width: min(1320px, 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  margin: 0 auto;
+  padding: 22px clamp(18px, 4vw, 64px) 30px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #b7d8c5;
+  border-radius: 11px 11px 11px 4px;
+  background: #e6f2e8;
+  color: #2e8066;
+  font: 700 19px/1 Fraunces, serif;
+  box-shadow: 3px 3px 0 #c9e1d0;
+}
+
+.wordmark strong,
+.wordmark small {
+  display: block;
+}
+
+.wordmark strong {
+  font-size: 10px;
+  letter-spacing: .1em;
+}
+
+.wordmark small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px 24px;
+}
+
+.links a {
+  color: #355848;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration-color: #a9c9b4;
+  text-underline-offset: 4px;
+}
+
+.links a:hover {
+  color: #1f6b50;
+  text-decoration-color: currentColor;
+}
+
+.wordmark:focus-visible,
+.links a:focus-visible {
+  outline: 3px solid #e2b541;
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+
+@media (max-width: 620px) {
+  .footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 16px;
+    padding-top: 20px;
+  }
+
+  .links {
+    justify-content: flex-start;
+    gap: 8px 18px;
+  }
+}

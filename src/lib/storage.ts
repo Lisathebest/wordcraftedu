@@ -1,4 +1,5 @@
 import type { MatchState, VocabularyWord } from "@/types/game";
+import { createBingoProgress } from "@/lib/bingo";
 import type { LanguageCheckMode, MatchMode } from "@/types/game";
 import { normalizeClassFolders, type ClassFolder } from "@/lib/classroom-folders";
 import { ILLUSTRATION_STYLE_VERSION, isGeneratedIllustration, normalizeImportedWordImage, PENDING_WORD_IMAGE } from "@/lib/illustration";
@@ -6,6 +7,7 @@ import { ILLUSTRATION_STYLE_VERSION, isGeneratedIllustration, normalizeImportedW
 const CURRENT_MATCH_KEY = "vocabulary-builder.current-match";
 const HISTORY_KEY = "vocabulary-builder.match-history";
 const SETTINGS_KEY = "vocabulary-builder.settings";
+const HIDE_IMAGES_UNTIL_CLICK_KEY = "wordcraft.hide-images-until-click.v2";
 const CUSTOM_WORDS_KEY = "vocabulary-builder.custom-words";
 const CLASS_FOLDERS_KEY = "vocabulary-builder.class-folders";
 
@@ -62,9 +64,24 @@ export function saveSettings(settings: SavedSettings) {
   if (typeof window !== "undefined") window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
 
+export function loadHideImagesUntilClick() {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(HIDE_IMAGES_UNTIL_CLICK_KEY) === "true";
+}
+
+export function saveHideImagesUntilClick(hidden: boolean) {
+  if (typeof window !== "undefined") window.localStorage.setItem(HIDE_IMAGES_UNTIL_CLICK_KEY, String(hidden));
+}
+
 export function loadMatch(): MatchState | null {
   if (typeof window === "undefined") return null;
-  try { const raw = window.localStorage.getItem(CURRENT_MATCH_KEY); return raw ? JSON.parse(raw) as MatchState : null; } catch { return null; }
+  try {
+    const raw = window.localStorage.getItem(CURRENT_MATCH_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as MatchState;
+    const wordPool = [...new Set([...parsed.players.flatMap((player) => player.hand || []), ...(parsed.drawPile || [])])];
+    return { ...parsed, players: parsed.players.map((player) => ({ ...player, bingo: player.bingo || createBingoProgress(wordPool) })) };
+  } catch { return null; }
 }
 
 export function saveMatch(state: MatchState) {
