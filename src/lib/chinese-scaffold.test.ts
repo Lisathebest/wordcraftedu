@@ -43,4 +43,13 @@ describe("Chinese learning data", () => {
       { word: "every day", chinese: "每天" },
     ]));
   });
+
+  it("keeps necessary relationship words in the draggable sentence", () => {
+    const scaffold = buildFallbackScaffold("打开门后看到这朵花别在鸭子头上真好看", ["zh-door", "zh-flower", "zh-duck"], "beginner");
+    const sentence = scaffold.chunks?.join(" ").toLowerCase() || "";
+    expect(sentence).toContain("after");
+    expect(sentence).toContain("pretty");
+    expect(sentence).toContain("duck's");
+    expect(sentence).toContain("head");
+  });
 });

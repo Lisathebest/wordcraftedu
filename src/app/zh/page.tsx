@@ -35,6 +35,10 @@ function shuffle<T>(items: T[]) {
   return next;
 }
 
+function prepareChunkBank(chunks: string[] | undefined) {
+  return shuffle(chunks || []).map((text, index) => ({ id: `${index}-${text}`, text }));
+}
+
 function localCheck(sentence: string, targets: ChineseVocabularyWord[]): EvaluationResult {
   const normalized = sentence.toLowerCase().replace(/[^a-z' -]/g, " ").replace(/\s+/g, " ").trim();
   const missing = targets.filter((target) => !new RegExp(`\\b${target.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}s?\\b`, "i").test(normalized));
@@ -155,7 +159,7 @@ export default function ChineseLearningPage() {
       if (!response.ok) throw new Error(payload.error || "暂时不能生成提示。");
       setScaffold(payload);
       setScaffoldOpen(true);
-      setChunkBank((payload.chunks || []).map((text, index) => ({ id: `${index}-${text}`, text })));
+      setChunkBank(prepareChunkBank(payload.chunks));
       setArrangedChunks([]);
       if (mode === "independent") setReferenceOpen(true);
     } catch (error) {
@@ -164,7 +168,7 @@ export default function ChineseLearningPage() {
       const fallback = buildFallbackScaffold(chineseSentence, selectedIds, mode);
       setScaffold(fallback);
       setScaffoldOpen(true);
-      setChunkBank((fallback.chunks || []).map((text, index) => ({ id: `${index}-${text}`, text })));
+      setChunkBank(prepareChunkBank(fallback.chunks));
       setArrangedChunks([]);
       setFeedback({ valid: false, confidence: 1, reason: "AI 提示暂时不可用，已切换到基础词库提示。", correctedSentence: "", relationshipSummary: error instanceof Error ? error.message : "", source: "rules", provisional: false });
       if (mode === "independent") setReferenceOpen(true);

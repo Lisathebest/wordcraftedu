@@ -51,10 +51,16 @@ function cleanAiResult(value: Partial<ScaffoldResponse>, fallback: ScaffoldRespo
   const conjunctions = Array.isArray(value.conjunctions) ? value.conjunctions.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean).slice(0, 3) : fallback.conjunctions;
   const importantWords = cleanImportantWords(value.importantWords, fallback.importantWords, targetWords);
   if (!verbs.length) return null;
-  const chunks = mode === "beginner" && Array.isArray(value.chunks)
+  let chunks = mode === "beginner" && Array.isArray(value.chunks)
     ? value.chunks.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim()).slice(0, 24)
     : undefined;
   if (mode === "beginner" && (!chunks?.length || !targetWords.every((word) => chunks.join(" ").toLowerCase().includes(word.toLowerCase())))) return null;
+  // Important words that describe a relationship in the Chinese idea must be
+  // available as draggable blocks too. If the model only mentions them in the
+  // hint strip, use the coherent fallback sentence for the block bank.
+  if (mode === "beginner" && chunks && fallback.chunks && fallback.importantWords.some(({ word }) => !chunks!.join(" ").toLowerCase().includes(word.toLowerCase()))) {
+    chunks = fallback.chunks;
+  }
   return {
     verbs,
     recommendedVerbForm: value.recommendedVerbForm.trim().slice(0, 60),
@@ -80,7 +86,7 @@ async function askProvider(provider: Provider, chineseSentence: string, targets:
       max_tokens: 700,
       ...(provider.jsonMode ? { response_format: { type: "json_object" } } : {}),
       messages: [
-        { role: "system", content: "你为中国小学四年级学生提供英文组句支架。只返回 JSON：verbs(string[2-3])、recommendedVerbForm(string)、tenseHint(简短中文)、structureId(string)、conjunctions(string[])、importantWords({word:string,chinese:string}[])。importantWords 从学生的中文想法中提取 2-5 个有助于表达想象力的简单英文词，可以是人物、地点、形容词、时间或副词，不要重复目标词；只给词语，不要组成完整答案。入门模式额外返回 chunks(string[])。structureId 只能是 have, like, this-is, is, can-see, use-to, there-is, present, past, progressive。不要解释语法术语，不要在进阶模式提供完整句子。入门模式的 chunks 必须组成一个自然、简单、包含全部目标词的英文句子。" },
+        { role: "system", content: "你为中国小学四年级学生提供英文组句支架。只返回 JSON：verbs(string[2-3])、recommendedVerbForm(string)、tenseHint(简短中文)、structureId(string)、conjunctions(string[])、importantWords({word:string,chinese:string}[])。importantWords 从学生的中文想法中提取 2-5 个有助于准确表达意思的简单英文词，可以是人物、地点、形容词、时间、副词或关系词，不要重复目标词；如果某个重要词是完成句意所必需的，必须同时放进入门模式的 chunks。不要只把必需词放在 importantWords 提示区。入门模式额外返回 chunks(string[])。structureId 只能是 have, like, this-is, is, can-see, use-to, there-is, present, past, progressive。不要解释语法术语，不要在进阶模式提供完整句子。入门模式的 chunks 必须组成一个自然、简单、包含全部目标词和必要关系词的英文句子。例如中文表达“花在鸭子头上”，必须使用“on the duck's head”，不能只写“on the duck”。" },
         { role: "user", content: JSON.stringify({ chineseSentence, targets, mode, safeFallback: fallback }) },
       ],
     }),

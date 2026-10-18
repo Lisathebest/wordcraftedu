@@ -66,6 +66,9 @@ const importantWordCues: Array<{ cue: RegExp; hint: ScaffoldWordHint }> = [
   { cue: /大大的|很大/, hint: { word: "big", chinese: "大" } },
   { cue: /小小的|很小/, hint: { word: "small", chinese: "小" } },
   { cue: /一起/, hint: { word: "together", chinese: "一起" } },
+  { cue: /之后|以后|后/, hint: { word: "after", chinese: "之后" } },
+  { cue: /头上|头顶|脑袋上/, hint: { word: "head", chinese: "头上" } },
+  { cue: /好看|漂亮|美丽/, hint: { word: "pretty", chinese: "好看" } },
 ];
 
 function importantWordsFor(sentence: string, tense: ScaffoldTense) {
@@ -90,11 +93,23 @@ export function buildFallbackScaffold(chineseSentence: string, targetWordIds: st
   const structureId = tense === "past" ? "past" : tense === "progressive" ? "progressive" : "present";
   const nouns = targets.map((target) => `the ${target.word}`);
   const object = nouns.join(" and ") || "the word";
-  const sentence = tense === "past"
+  const hasHeadRelation = /头上|头顶|脑袋上/.test(chineseSentence)
+    && targets.some((target) => target.word === "flower")
+    && targets.some((target) => target.word === "duck");
+  const hasAfterDoor = /打开门后|开门后|门后|之后|以后/.test(chineseSentence)
+    && targets.some((target) => target.word === "door");
+  const hasPretty = /好看|漂亮|美丽/.test(chineseSentence);
+  const doorVerb = targets.flatMap((target) => target.verbs).find((verb) => verb === "open") || "open";
+  const seeVerb = targets.flatMap((target) => target.verbs).find((verb) => verb === "see") || "see";
+  const flowerPhrase = `the ${hasPretty ? "pretty " : ""}flower`;
+  const visualSentence = hasHeadRelation
+    ? `${hasAfterDoor ? `After I ${doorVerb} the door, ` : ""}I ${seeVerb} ${flowerPhrase} on the duck's head.`
+    : null;
+  const sentence = visualSentence || (tense === "past"
     ? `I ${recommendedVerbForm} ${object} yesterday.`
     : tense === "progressive"
       ? `I am ${recommendedVerbForm} ${object} now.`
-      : `I ${recommendedVerbForm} ${object} every day.`;
+      : `I ${recommendedVerbForm} ${object} every day.`);
   const tenseHint = tense === "past"
     ? "你写到了过去的时间，建议使用一般过去时。"
     : tense === "progressive"
