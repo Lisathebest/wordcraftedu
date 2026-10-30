@@ -54,7 +54,8 @@ function cleanAiResult(value: Partial<ScaffoldResponse>, fallback: ScaffoldRespo
   let chunks = mode === "beginner" && Array.isArray(value.chunks)
     ? value.chunks.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim()).slice(0, 24)
     : undefined;
-  if (mode === "beginner" && (!chunks?.length || !targetWords.every((word) => chunks.join(" ").toLowerCase().includes(word.toLowerCase())))) return null;
+  const chunkText = chunks?.join(" ").toLowerCase();
+  if (mode === "beginner" && (!chunkText || !targetWords.every((word) => chunkText.includes(word.toLowerCase())))) return null;
   // Important words that describe a relationship in the Chinese idea must be
   // available as draggable blocks too. If the model only mentions them in the
   // hint strip, use the coherent fallback sentence for the block bank.
